@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>Binance P2P USDT/UAH — Аналітика Курсу</title>
+  <style>
+    :root {
+      --bg: #0B0E11;
+      --card: #181A20;
+      --card-2: #1E2329;
+      --border: #2B3139;
+      --text: #EAECEF;
+      --muted: #848E9C;
+      --yellow: #FCD535;
+      --green: #0ECB81;
+      --red: #F6465D;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+      padding: 24px;
+      line-height: 1.5;
+    }
+    .container { max-width: 1280px; margin: 0 auto; }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      padding: 16px 20px;
+      border-radius: 12px;
+    }
+    h1 { font-size: 20px; color: var(--yellow); display: flex; align-items: center; gap: 10px; }
+    .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    button, select, input {
+      background: var(--card-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 12px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--yellow); }
+    button.primary { background: var(--yellow); color: #181A20; font-weight: bold; border: none; }
+    button.success { background: rgba(14, 203, 129, 0.15); color: var(--green); border-color: var(--green); font-weight: 600; }
+    button.danger { background: rgba(246, 70, 93, 0.15); color: var(--red); border-color: var(--red); }
+
+    .sync-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 24px;
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      padding: 12px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .kpi-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+    }
+    .kpi-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    .kpi-val { font-size: 24px; font-weight: 700; }
+    .kpi-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 960px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .panel-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    canvas {
+      width: 100%;
+      height: 300px;
+      background: var(--card-2);
+      border-radius: 8px;
+      display: block;
+    }
+
+    .hourly-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .hour-box {
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px;
+      text-align: center;
+      font-size: 12px;
+    }
+    .hour-box .h-time { color: var(--muted); font-size: 11px; }
+    .hour-box .h-price { font-weight: bold; font-size: 14px; margin-top: 2px; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    th { color: var(--muted); font-weight: 500; font-size: 12px; }
+    tr:hover td { background: var(--card-2); }
+    .badge-low {
+      background: rgba(14, 203, 129, 0.15);
+      color: var(--green);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>📈 Binance P2P Rate Tracker (USDT / UAH)</h1>
+        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">
+          Автоматично перевіряє ринок щохвилини у фоні і записує найнижчу ціну кожні 5 хвилин (PrivatBank / Monobank)
+        </div>
+      </div>
+      <div class="controls">
+        <label style="font-size:12px;color:var(--muted);">
+          Частота:
+          <select id="sel-poll-interval" style="margin-left:4px;color:var(--yellow);font-weight:bold;">
+            <option value="5">Кожні 5 сек</option>
+            <option value="10">Кожні 10 сек</option>
+            <option value="15" selected>Кожні 15 сек</option>
+            <option value="30">Кожні 30 сек</option>
+            <option value="60">Кожні 60 сек</option>
+          </select>
+        </label>
+        <label style="font-size:12px;color:var(--muted);">
+          Мін. ліміт (грн):
+          <input id="inp-min-limit" type="number" step="100" value="500" style="width:80px;margin-left:4px;">
+        </label>
+        <label style="font-size:12px;color:var(--yellow);display:flex;align-items:center;gap:5px;cursor:pointer;" title="Відсікає фейкові/помилкові простріли (напр. 44.00 грн) та рахує об'єктивну ринкову ціну">
+          <input id="chk-filter-outliers" type="checkbox" checked style="accent-color:var(--yellow);cursor:pointer;">
+          🛡️ Без аномалій (об'єктивний курс)
+        </label>
+        <select id="sel-range">
+          <option value="24">Останні 24 години</option>
+          <option value="72">Останні 3 дні</option>
+          <option value="168">Останні 7 днів</option>
+          <option value="9999">Вся історія</option>
+        </select>
+        <button id="btn-refresh" class="primary">🔄 Оновити зараз</button>
+        <button id="btn-export-json">📦 Експорт JSON (для HA)</button>
+        <button id="btn-export">📥 Скачати CSV</button>
+        <button id="btn-clear" class="danger">🗑️ Очистити</button>
+      </div>
+    </header>
+
+    <!-- Панель автозбереження у файл проекту та щоденних звітів у Telegram -->
+    <div class="sync-bar">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <button id="btn-link-file" class="success">📂 Підключити автозапис у файл проекту (p2p-history.json)</button>
+        <span id="file-sync-status" style="color:var(--muted);font-size:12px;">
+          Файл не підключено (дані зберігаються у браузері). Натисніть кнопку, щоб вибрати <code>bin/p2p-history.json</code> для автозапису.
+        </span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <label style="font-size:12px;color:var(--muted);">
+          Bot Token:
+          <input id="inp-tg-token" type="password" placeholder="123456:AAH..." style="width:140px;margin-left:4px;">
+        </label>
+        <label style="font-size:12px;color:var(--muted);">
+          Chat ID:
+          <input id="inp-tg-chat" type="text" placeholder="Ваш Chat ID" style="width:105px;margin-left:4px;">
+        </label>
+        <label style="font-size:12px;color:var(--muted);">
+          Час звіту:
+          <select id="sel-report-hour" style="margin-left:4px;">
+            <option value="9">09:00</option>
+            <option value="12">12:00</option>
+            <option value="18">18:00</option>
+            <option value="21" selected>21:00</option>
+            <option value="22">22:00</option>
+            <option value="23">23:00</option>
+          </select>
+        </label>
+        <button id="btn-tg-report">✈️ Надіслати зведення зараз</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Поточна найнижча ціна</div>
+        <div class="kpi-val" id="kpi-current" style="color: var(--yellow);">—</div>
+        <div class="kpi-sub" id="kpi-current-sub">Очікування...</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Мінімум за обраний період</div>
+        <div class="kpi-val" id="kpi-min" style="color: var(--green);">—</div>
+        <div class="kpi-sub" id="kpi-min-sub">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Максимум за обраний період</div>
+        <div class="kpi-val" id="kpi-max" style="color: var(--red);">—</div>
+        <div class="kpi-sub" id="kpi-max-sub">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Найвигідніша година доби 🌟</div>
+        <div class="kpi-val" id="kpi-best-hour" style="color: var(--green);">—</div>
+        <div class="kpi-sub" id="kpi-best-hour-sub">Збираємо статистику по годинах...</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title">
+          <span>Графік найнижчої ціни (крок 5 хвилин)</span>
+          <span id="chart-count" style="font-size:12px;color:var(--muted);">0 точок</span>
+        </div>
+        <canvas id="priceChart" width="800" height="300"></canvas>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">
+          <span>Середній мінімум по годинах доби (00:00 – 23:00)</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">
+          Показує, в яку годину дня курс USDT зазвичай найнижчий (зеленим підсвічено найвигідніші години):
+        </div>
+        <div class="hourly-grid" id="hourly-grid"></div>
+      </div>
+    </div>
+
+    <!-- Графік накладання днів (00:00 - 24:00) для пошуку повторюваних патернів по годинах -->
+    <div class="panel" style="margin-bottom: 24px;">
+      <div class="panel-title" style="flex-wrap: wrap; gap: 12px;">
+        <div>
+          <span>📊 Накладання днів (00:00 – 24:00) — порівняння патернів та кореляції по годинах</span>
+          <div style="font-size:11px;color:var(--muted);font-weight:normal;margin-top:2px;">
+            Кожна лінія — окремий день на єдиній шкалі часу 00:00–24:00. Біла пунктирна лінія — усереднений добовий профіль.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;">
+            Режим шкали Y:
+            <select id="sel-overlay-mode" style="color:var(--yellow);font-weight:bold;">
+              <option value="raw">Абсолютна ціна (UAH)</option>
+              <option value="delta">Відхилення від середньої за день (Δ грн — чиста форма хвилі)</option>
+            </select>
+          </label>
+          <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;">
+            Деталізація:
+            <select id="sel-overlay-step">
+              <option value="15">Крок 15 хв (плавний)</option>
+              <option value="5">Крок 5 хв (точний)</option>
+              <option value="60">Крок 1 год (погодинний)</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div id="overlay-legend" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;"></div>
+      <canvas id="dailyOverlayChart" width="1200" height="340" style="height:340px;"></canvas>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">
+        <span>Історія 5-хвилинних замірів (останні записи зверху)</span>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Час (5-хвилинка)</th>
+              <th>Найнижча ціна (UAH)</th>
+              <th>Середня ТОП-5 (UAH)</th>
+              <th>Розкид за 5 хв</th>
+              <th>Продавець</th>
+              <th>Ліміти ордера</th>
+              <th>Банки</th>
+              <th>Замірів</th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  Як підключити збір курсу P2P на Home Assistant (24/7 без увімкненого ПК)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+#  КРОК 1: Скопіюй файл `p2p_collector.py` на свій Home Assistant у папку `/config/p2p_collector.py`
+#
+#  КРОК 2: Додай цей блок у свій `/config/configuration.yaml` (якщо секція `command_line:` вже є —
+#          просто додай сенсор всередину неї) і перезапусти Home Assistant.
+#
+#  Що це робить:
+#    - Home Assistant сам кожні 15 секунд запускає `python3 /config/p2p_collector.py --once`
+#    - Скрипт записує історію у SQLite базу `/config/p2p_history.db`
+#      ТА автоматично оновлює файл `/config/www/p2p-history.json`
+#    - Цей файл стає доступним для твого браузерного плагіна за посиланням:
+#      https://ha.ibtek.uk/local/p2p-history.json
+#      (або в локальній мережі: http://homeassistant.local:8123/local/p2p-history.json)
+# ══════════════════════════════════════════════════════════════════════════════
+
+command_line:
+  - sensor:
+      name: "Binance P2P USDT UAH Min Price"
+      unique_id: binance_p2p_usdt_uah_min_price
+      command: "python3 P2P_monitoring/p2p_collector.py --once --min-limit 500"
+      scan_interval: 15
+      command_timeout: 12
+      unit_of_measurement: "UAH"
+      icon: mdi:currency-usd
+      value_template: >
+        {{ value if value != 'unavailable' else None }}
+
+shell_command:
+  p2p_send_telegram_report: "python3 P2P_monitoring/p2p_collector.py --send-report"

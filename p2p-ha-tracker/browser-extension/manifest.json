@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Binance P2P Remote Tracker (Home Assistant DB)",
+  "version": "1.3.0",
+  "description": "Читає історію курсу USDT/UAH, зібрану 24/7 сервером Home Assistant (p2p-history.json), та будує аналітику по годинах і днях.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Binance P2P Remote Tracker (HA)",
+    "default_popup": "popup.html"
+  }
+}

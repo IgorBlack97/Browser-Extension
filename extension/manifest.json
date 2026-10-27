@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Binance P2P Fast Auto-Buy Bot",
+  "version": "1.2.0",
+  "description": "Автоматичний пошук і викуп ордерів USDT/UAH на Binance P2P з миттєвими сповіщеннями в Telegram.",
+  "permissions": [
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://api.telegram.org/*",
+    "https://*.binance.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Binance P2P Auto-Buy Bot",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://c2c.binance.com/*",
+        "https://p2p.binance.com/*",
+        "https://www.binance.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

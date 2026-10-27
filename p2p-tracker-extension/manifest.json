@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Binance P2P Rate Tracker (USDT/UAH)",
+  "version": "1.2.0",
+  "description": "Фоновий моніторинг та аналітика курсу USDT/UAH на Binance P2P. Записує найнижчу ціну кожні 5 хвилин, відправляє зведення в Telegram та синхронізує історію у файл проекту.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://c2c.binance.com/*",
+    "https://p2p.binance.com/*",
+    "https://www.binance.com/*",
+    "https://api.telegram.org/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Binance P2P Rate Tracker (USDT/UAH)",
+    "default_popup": "popup.html"
+  }
+}

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>P2P Rate Tracker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 320px;
+      background: #181A20;
+      color: #EAECEF;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+      padding: 14px 16px;
+      font-size: 13px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #2B3139;
+    }
+    .title {
+      font-weight: 700;
+      font-size: 14px;
+      color: #FCD535;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-pill {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 99px;
+    }
+    .status-on {
+      background: rgba(14, 203, 129, 0.18);
+      color: #0ECB81;
+      border: 1px solid #0ECB81;
+    }
+    .status-off {
+      background: rgba(132, 142, 156, 0.2);
+      color: #848E9C;
+      border: 1px solid #474D57;
+    }
+    .card {
+      background: #1E2329;
+      border: 1px solid #2B3139;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+    .price-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    .price-val {
+      font-size: 22px;
+      font-weight: 700;
+      color: #0ECB81;
+    }
+    .sub-info {
+      font-size: 11px;
+      color: #848E9C;
+      margin-top: 4px;
+    }
+    label.lbl { color: #848E9C; font-size: 10px; display: block; margin-bottom: 2px; }
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      background: #2B3139;
+      color: #fff;
+      border: 1px solid #474D57;
+      border-radius: 4px;
+      padding: 5px 7px;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    input:focus { outline: none; border-color: #FCD535; }
+    .btn {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid #2B3139;
+      margin-bottom: 8px;
+      text-align: center;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn-toggle-start {
+      background: #0ECB81;
+      color: #fff;
+      border: none;
+    }
+    .btn-toggle-stop {
+      background: #F6465D;
+      color: #fff;
+      border: none;
+    }
+    .btn-secondary {
+      background: #2B3139;
+      color: #EAECEF;
+    }
+    .btn-yellow {
+      background: #FCD535;
+      color: #181A20;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">📈 P2P Курс Трекер</div>
+    <span id="status-badge" class="status-pill status-on">АКТИВНИЙ</span>
+  </div>
+
+  <div class="card">
+    <div class="price-row">
+      <span style="color:#848E9C;font-size:12px;">Найнижчий курс:</span>
+      <span id="cur-price" class="price-val">—</span>
+    </div>
+    <div id="cur-merchant" class="sub-info">Очікування заміру...</div>
+    <div id="total-records" class="sub-info" style="margin-top:6px;color:#FCD535;">Зібрано 5-хвилинок: 0</div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span style="font-size:12px;color:#848E9C;">Частота запитів:</span>
+      <select id="sel-poll-interval" style="background:#2B3139;color:#FCD535;font-weight:bold;border:1px solid #474D57;border-radius:4px;padding:3px 8px;font-size:12px;cursor:pointer;">
+        <option value="5">Кожні 5 сек</option>
+        <option value="10">Кожні 10 сек</option>
+        <option value="15" selected>Кожні 15 сек</option>
+        <option value="30">Кожні 30 сек</option>
+        <option value="60">Кожні 60 сек</option>
+      </select>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span style="font-size:12px;color:#848E9C;">Мін. ліміт (грн):</span>
+      <input id="inp-min-limit" type="number" step="100" value="500" style="width:115px;background:#2B3139;color:#fff;font-weight:bold;border:1px solid #474D57;border-radius:4px;padding:3px 8px;font-size:12px;margin-bottom:0;">
+    </div>
+    <div style="font-size:11px;font-weight:bold;color:#FCD535;margin-bottom:6px;display:flex;justify-content:space-between;border-top:1px solid #2B3139;padding-top:8px;">
+      <span>✈️ Telegram для звітів</span>
+      <label style="font-weight:normal;color:#EAECEF;cursor:pointer;">
+        <input id="inp-tg-enabled" type="checkbox" checked style="accent-color:#0ECB81;"> Увімк.
+      </label>
+    </div>
+    <label class="lbl">Bot Token (@BotFather)</label>
+    <input id="inp-tg-token" type="password" placeholder="123456789:AAH...">
+    <label class="lbl">Chat ID (@userinfobot)</label>
+    <input id="inp-tg-chat" type="text" placeholder="Ваш Chat ID" style="margin-bottom:0;">
+  </div>
+
+  <button id="btn-toggle" class="btn btn-toggle-stop">⏸ Зупинити збір курсу</button>
+  <button id="btn-dashboard" class="btn btn-yellow">📊 Відкрити графіки та аналітику</button>
+  <button id="btn-tg" class="btn btn-secondary" style="margin-bottom:0;">✈️ Надіслати зведення в ТГ</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>

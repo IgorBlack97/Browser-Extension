@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>P2P Remote Tracker (HA)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 335px;
+      background: #181A20;
+      color: #EAECEF;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+      padding: 14px 16px;
+      font-size: 13px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #2B3139;
+    }
+    .title {
+      font-weight: 700;
+      font-size: 14px;
+      color: #3B82F6;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-pill {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 99px;
+    }
+    .status-on {
+      background: rgba(59, 130, 246, 0.18);
+      color: #60A5FA;
+      border: 1px solid #3B82F6;
+    }
+    .status-off {
+      background: rgba(132, 142, 156, 0.2);
+      color: #848E9C;
+      border: 1px solid #474D57;
+    }
+    .card {
+      background: #1E2329;
+      border: 1px solid #2B3139;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+    .price-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    .price-val {
+      font-size: 22px;
+      font-weight: 700;
+      color: #0ECB81;
+    }
+    .sub-info {
+      font-size: 11px;
+      color: #848E9C;
+      margin-top: 4px;
+    }
+    label.lbl { color: #848E9C; font-size: 10px; display: block; margin-bottom: 3px; }
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      background: #2B3139;
+      color: #fff;
+      border: 1px solid #474D57;
+      border-radius: 4px;
+      padding: 5px 7px;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    input:focus { outline: none; border-color: #3B82F6; }
+    .btn {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid #2B3139;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .btn-toggle-start { background: #0ECB81; color: #fff; border: none; }
+    .btn-toggle-stop { background: #F6465D; color: #fff; border: none; }
+    .btn-yellow { background: #FCD535; color: #181A20; border: none; }
+    .btn-blue { background: #3B82F6; color: #fff; border: none; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">🏠 P2P Tracker (Home Assistant)</div>
+    <span id="status-badge" class="status-pill status-on">СИНХР.</span>
+  </div>
+
+  <div class="card">
+    <div class="price-row">
+      <span style="color:#848E9C;font-size:12px;">Курс на сервері HA:</span>
+      <span id="cur-price" class="price-val">—</span>
+    </div>
+    <div id="cur-merchant" class="sub-info">Очікування синхронізації з HA...</div>
+    <div id="total-records" class="sub-info" style="margin-top:6px;color:#FCD535;">Зібрано 5-хвилинок у базі: 0</div>
+    <div id="sync-status" class="sub-info" style="color:#60A5FA;"></div>
+  </div>
+
+  <div class="card">
+    <label class="lbl">🔗 URL бази даних на Home Assistant (p2p-history.json)</label>
+    <input id="inp-remote-url" type="text" placeholder="https://ha.ibtek.uk/local/p2p-history.json">
+    <button id="btn-sync-now" class="btn btn-blue" style="padding:6px;font-size:12px;margin-bottom:0;">🔄 Підтягнути дані з Home Assistant зараз</button>
+  </div>
+
+  <button id="btn-dashboard" class="btn btn-yellow">📊 Відкрити графіки та аналітику</button>
+  <button id="btn-toggle" class="btn btn-toggle-stop" style="margin-bottom:0;">⏸ Вимкнути авто-синхронізацію</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>
