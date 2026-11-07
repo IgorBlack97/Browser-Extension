@@ -296,31 +296,59 @@ def export_json_snapshot(conn: sqlite3.Connection, last_sample: dict):
     return records
 
 
+def read_secrets_file():
+    """Прості ключі з secrets.yaml: p2p_tg_bot_token, p2p_min_limit тощо."""
+    values = {}
+    if not os.path.isfile(SECRETS_PATH):
+        return values
+    try:
+        with open(SECRETS_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or ":" not in line:
+                    continue
+                key, _, raw = line.partition(":")
+                raw = raw.split("#", 1)[0].strip().strip("'\"")
+                if key.strip() and raw:
+                    values[key.strip()] = raw
+    except Exception:
+        pass
+    return values
+
+
 def load_telegram_credentials():
     """
     Читає p2p_tg_bot_token та p2p_tg_chat_id із /homeassistant/secrets.yaml
     (або зі змінних оточення P2P_TG_BOT_TOKEN / P2P_TG_CHAT_ID).
     """
-    bot_token = os.environ.get("P2P_TG_BOT_TOKEN", "").strip()
-    chat_id = os.environ.get("P2P_TG_CHAT_ID", "").strip()
-
-    if (not bot_token or not chat_id) and os.path.isfile(SECRETS_PATH):
-        try:
-            with open(SECRETS_PATH, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    m_tok = re.match(r'^p2p_tg_bot_token\s*:\s*["\']?([^"\'#\s]+)["\']?', line)
-                    if m_tok:
-                        bot_token = m_tok.group(1).strip()
-                    m_chat = re.match(r'^p2p_tg_chat_id\s*:\s*["\']?([^"\'#\s]+)["\']?', line)
-                    if m_chat:
-                        chat_id = m_chat.group(1).strip()
-        except Exception:
-            pass
-
+    secrets = read_secrets_file()
+    bot_token = os.environ.get("P2P_TG_BOT_TOKEN", "").strip() or secrets.get("p2p_tg_bot_token", "")
+    chat_id = os.environ.get("P2P_TG_CHAT_ID", "").strip() or secrets.get("p2p_tg_chat_id", "")
     return bot_token, chat_id
+
+
+def load_p2p_settings(cli_min_limit=None, cli_report_hour=None):
+    """
+    Мін. ліміт і година звіту: аргумент командного рядка, інакше secrets.yaml
+    (p2p_min_limit, p2p_daily_report_hour), інакше змінні оточення або 500 / 21.
+    """
+    secrets = read_secrets_file()
+
+    if cli_min_limit is not None:
+        min_limit = float(cli_min_limit)
+    elif secrets.get("p2p_min_limit"):
+        min_limit = float(secrets["p2p_min_limit"])
+    else:
+        min_limit = float(os.environ.get("P2P_MIN_LIMIT_UAH", "500"))
+
+    if cli_report_hour is not None:
+        report_hour = int(cli_report_hour)
+    elif secrets.get("p2p_daily_report_hour"):
+        report_hour = int(secrets["p2p_daily_report_hour"])
+    else:
+        report_hour = int(os.environ.get("P2P_DAILY_REPORT_HOUR", "21"))
+
+    return min_limit, report_hour
 
 
 def get_median_value(vals):
@@ -462,9 +490,10 @@ def send_daily_telegram_summary(records, force_manual=False):
         return False
 
 
-def check_and_send_daily_report(conn: sqlite3.Connection, records: list):
+def check_and_send_daily_report(conn: sqlite3.Connection, records: list, report_hour=None):
     now = datetime.now()
-    if now.hour != DAILY_REPORT_HOUR:
+    hour = DAILY_REPORT_HOUR if report_hour is None else int(report_hour)
+    if now.hour != hour:
         return
 
     today_key = now.strftime("%Y-%m-%d")
@@ -485,7 +514,7 @@ def check_and_send_daily_report(conn: sqlite3.Connection, records: list):
         conn.commit()
 
 
-def collect_once(min_limit_uah: float = MIN_ORDER_LIMIT_UAH):
+def collect_once(min_limit_uah: float = MIN_ORDER_LIMIT_UAH, report_hour=None):
     offers = fetch_best_p2p_offers(min_limit_uah)
     if not offers:
         return None
@@ -587,7 +616,7 @@ def collect_once(min_limit_uah: float = MIN_ORDER_LIMIT_UAH):
             "top5Avg": top5_avg,
         }
         records = export_json_snapshot(conn, last_sample)
-        check_and_send_daily_report(conn, records)
+        check_and_send_daily_report(conn, records, report_hour)
         return last_sample
     finally:
         conn.close()
@@ -599,8 +628,10 @@ def main():
     parser.add_argument("--send-report", action="store_true", help="Примусово надіслати зведення в Telegram зараз")
     parser.add_argument("--daemon", action="store_true", help="Працювати у нескінченному циклі")
     parser.add_argument("--interval", type=int, default=15, help="Інтервал опитування в секундах (для --daemon)")
-    parser.add_argument("--min-limit", type=float, default=MIN_ORDER_LIMIT_UAH, help="Мінімальний верхній ліміт ордера (грн)")
+    parser.add_argument("--min-limit", type=float, default=None, help="Мінімальний верхній ліміт ордера (грн). Інакше p2p_min_limit із secrets.yaml")
+    parser.add_argument("--report-hour", type=int, default=None, help="Година щоденного звіту (0–23). Інакше p2p_daily_report_hour із secrets.yaml")
     args = parser.parse_args()
+    min_limit, report_hour = load_p2p_settings(args.min_limit, args.report_hour)
 
     if args.send_report:
         conn = sqlite3.connect(DB_PATH, timeout=10)
@@ -614,12 +645,12 @@ def main():
     if args.daemon:
         while True:
             try:
-                collect_once(args.min_limit)
+                collect_once(min_limit, report_hour)
             except Exception as e:
                 sys.stderr.write(f"[p2p_collector] Error: {e}\n")
             time.sleep(max(3, args.interval))
     else:
-        sample = collect_once(args.min_limit)
+        sample = collect_once(min_limit, report_hour)
         if sample and sample.get("best"):
             # Виводимо поточну ціну в stdout, щоб command_line sensor у Home Assistant міг читати її як стан сенсора
             print(f"{sample['best']['price']:.2f}")

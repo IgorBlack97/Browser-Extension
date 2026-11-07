@@ -7,6 +7,12 @@
 #  КРОК 2: Додай цей блок у свій `/config/configuration.yaml` (якщо секція `command_line:` вже є —
 #          просто додай сенсор всередину неї) і перезапусти Home Assistant.
 #
+#  У secrets.yaml поруч із токеном бота і Chat ID:
+#    p2p_tg_bot_token: "123456:AAH..."
+#    p2p_tg_chat_id: "123456789"
+#    p2p_min_limit: 500
+#    p2p_daily_report_hour: 21
+#
 #  Що це робить:
 #    - Home Assistant сам кожні 15 секунд запускає `python3 /config/p2p_collector.py --once`
 #    - Скрипт записує історію у SQLite базу `/config/p2p_history.db`
@@ -20,7 +26,7 @@ command_line:
   - sensor:
       name: "Binance P2P USDT UAH Min Price"
       unique_id: binance_p2p_usdt_uah_min_price
-      command: "python3 P2P_monitoring/p2p_collector.py --once --min-limit 500"
+      command: "python3 P2P_monitoring/p2p_collector.py --once"
       scan_interval: 15
       command_timeout: 12
       unit_of_measurement: "UAH"
