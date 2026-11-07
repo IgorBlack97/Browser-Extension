@@ -3,10 +3,8 @@
  * відправки зведень у Telegram та живого автозапису в локальний файл проекту (bin/p2p-history.json).
  */
 
-const inpMinLimit = document.getElementById('inp-min-limit');
 const selPollInterval = document.getElementById('sel-poll-interval');
 const selRange = document.getElementById('sel-range');
-const selReportHour = document.getElementById('sel-report-hour');
 const inpTgToken = document.getElementById('inp-tg-token');
 const inpTgChat = document.getElementById('inp-tg-chat');
 const btnRefresh = document.getElementById('btn-refresh');
@@ -24,7 +22,9 @@ const haSyncStatus = document.getElementById('ha-sync-status');
 let cachedHistory = [];
 let fullHistory = [];
 let linkedFileHandle = null;
-const hiddenOverlayDays = new Set();
+const overlayDayChoice = new Map();
+let selectedHeatmapDayKey = null;
+let selectedHistoryDayKey = null;
 
 function getMedian(arr) {
   if (!arr || arr.length === 0) return 0;
@@ -123,7 +123,6 @@ async function loadAndRender() {
     pollIntervalSec: 30,
     remoteUrl: 'https://ha.ibtek.uk/local/p2p-history.json',
   };
-  if (inpMinLimit) inpMinLimit.value = settings.minOrderLimitUAH || 500;
   if (selPollInterval) {
     selPollInterval.value = String(settings.pollIntervalSec || 30);
   }
@@ -138,9 +137,6 @@ async function loadAndRender() {
       haSyncStatus.style.color = '#0ECB81';
       haSyncStatus.textContent = `✅ Синхронізовано з HA о ${new Date(data.lastRemoteSyncAt).toLocaleTimeString('uk-UA')}`;
     }
-  }
-  if (typeof settings.dailyReportHour === 'number') {
-    selReportHour.value = String(settings.dailyReportHour);
   }
   if (inpTgToken && document.activeElement !== inpTgToken) {
     inpTgToken.value = settings.telegram?.botToken || '';
@@ -157,10 +153,10 @@ async function loadAndRender() {
   cachedHistory = fullHistory.filter((item) => item.bucketTs >= cutoff);
 
   renderKPIs(cachedHistory, data.lastSample);
+  renderHourlyHeatmap(fullHistory);
   renderChart(cachedHistory);
   renderDailyOverlayChart(fullHistory);
-  renderHourlyHeatmap(cachedHistory);
-  renderTable(cachedHistory);
+  renderTable(fullHistory);
 
   if (linkedFileHandle) {
     syncHistoryToFile(rawAllHistory);
@@ -207,15 +203,68 @@ function renderKPIs(history, lastSample) {
   maxSub.textContent = `${formatTime(maxItem.bucketTs)} (${maxItem.merchant})`;
 }
 
-function renderHourlyHeatmap(history) {
+function shiftDayKey(dayKey, deltaDays) {
+  const [y, m, d] = dayKey.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + deltaDays);
+  return getLocalDayKey(dt.getTime());
+}
+
+function clampHeatmapDay(dayKey, allHistory) {
+  const today = getLocalDayKey(Date.now());
+  const oldest = oldestHistoryDayKey(allHistory);
+  if (!dayKey || dayKey > today) return today;
+  if (dayKey < oldest) return oldest;
+  return dayKey;
+}
+
+function formatHeatmapDayLabel(dayKey) {
+  const today = getLocalDayKey(Date.now());
+  const yesterday = shiftDayKey(today, -1);
+  const base = formatDayLabel(dayKey);
+  if (dayKey === today) return `Сьогодні, ${base}`;
+  if (dayKey === yesterday) return `Вчора, ${base}`;
+  return base;
+}
+
+function renderHourlyHeatmap(allHistory) {
   const grid = document.getElementById('hourly-grid');
   const bestHourEl = document.getElementById('kpi-best-hour');
   const bestHourSub = document.getElementById('kpi-best-hour-sub');
+  const dayLabelEl = document.getElementById('hour-day-label');
+  const dayHintEl = document.getElementById('hour-day-hint');
+  const btnPrev = document.getElementById('btn-hour-prev');
+  const btnNext = document.getElementById('btn-hour-next');
   grid.innerHTML = '';
+
+  const todayKey = getLocalDayKey(Date.now());
+  const oldestKey = oldestHistoryDayKey(allHistory);
+  const dayKey = clampHeatmapDay(selectedHeatmapDayKey || todayKey, allHistory);
+  selectedHeatmapDayKey = dayKey;
+  const isToday = dayKey === todayKey;
+  const currentHour = new Date().getHours();
+
+  if (dayLabelEl) dayLabelEl.textContent = formatHeatmapDayLabel(dayKey);
+  if (btnPrev) {
+    btnPrev.disabled = dayKey <= oldestKey;
+    btnPrev.title = btnPrev.disabled ? 'Далі назад замірів немає' : 'Попередній день';
+  }
+  if (btnNext) {
+    btnNext.disabled = isToday;
+    btnNext.title = isToday ? 'Майбутні дні недоступні' : 'Наступний день';
+  }
+  if (dayHintEl) {
+    dayHintEl.textContent = isToday
+      ? 'Лише заміри сьогоднішнього дня. Години, які ще не настали, порожні. Назад — до першого дня із замірами.'
+      : 'Лише заміри цього дня. Порожня клітинка з «—» — у цю годину не було замірів.';
+  }
+
+  const history = (allHistory || []).filter((h) => getLocalDayKey(h.bucketTs) === dayKey);
 
   const byHour = Array.from({ length: 24 }, () => []);
   for (const h of history) {
     const hour = new Date(h.bucketTs).getHours();
+    if (isToday && hour > currentHour) continue;
     byHour[hour].push(h.minPrice);
   }
 
@@ -260,24 +309,29 @@ function renderHourlyHeatmap(history) {
     { text: '#FDA4AF', border: 'rgba(253, 164, 175, 0.45)', bg: 'rgba(246, 70, 93, 0.05)', badge: '🔺 #3' },
   ];
 
+  const dayLabel = formatHeatmapDayLabel(dayKey);
   if (bestHourObj) {
     const top3Str = sortedAsc
       .slice(0, 3)
       .map((s) => `${String(s.hour).padStart(2, '0')}:00`)
       .join(', ');
     bestHourEl.textContent = top3Str;
-    bestHourSub.textContent = `#1: ${String(bestHourObj.hour).padStart(2, '0')}:00 (${bestHourObj.avg.toFixed(2)} ₴, мін ${bestHourObj.min.toFixed(2)} ₴)`;
+    bestHourSub.textContent = `${dayLabel}. #1: ${String(bestHourObj.hour).padStart(2, '0')}:00 (${bestHourObj.avg.toFixed(2)} ₴, мін ${bestHourObj.min.toFixed(2)} ₴)`;
   } else {
     bestHourEl.textContent = '—';
-    bestHourSub.textContent = 'Недостатньо даних';
+    bestHourSub.textContent = `${dayLabel}. Недостатньо даних`;
   }
 
   for (const s of hourStats) {
     const box = document.createElement('div');
     box.className = 'hour-box';
     const label = `${String(s.hour).padStart(2, '0')}:00`;
+    const isFutureHour = isToday && s.hour > currentHour;
 
-    if (s.avg === null) {
+    if (isFutureHour) {
+      box.classList.add('is-future');
+      box.innerHTML = `<div class="h-time">${label}</div><div class="h-price">&nbsp;</div>`;
+    } else if (s.avg === null) {
       box.innerHTML = `<div class="h-time">${label}</div><div class="h-price" style="color:#474D57;">—</div>`;
     } else {
       let priceColor = '#EAECEF';
@@ -313,6 +367,15 @@ function renderChart(history) {
   const canvas = document.getElementById('priceChart');
   const countEl = document.getElementById('chart-count');
   countEl.textContent = `${history.length} замірів (по 5 хв)`;
+
+  const rect = canvas.getBoundingClientRect();
+  const cssW = Math.max(1, Math.floor(rect.width));
+  const measuredH = Math.floor(rect.height);
+  const cssH = measuredH > 0 ? measuredH : 280;
+  if (canvas.width !== cssW || canvas.height !== cssH) {
+    canvas.width = cssW;
+    canvas.height = cssH;
+  }
 
   const ctx = canvas.getContext('2d');
   const W = canvas.width;
@@ -427,6 +490,25 @@ function formatDayLabel(dayKey) {
   return `${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')} (${weekday})`;
 }
 
+function formatShortDate(dayKey) {
+  const [, m, d] = dayKey.split('-');
+  return `${d}.${m}`;
+}
+
+function getWeekStartKey(dayKey) {
+  const [y, m, d] = dayKey.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  const weekday = dt.getDay();
+  const diffToMonday = weekday === 0 ? -6 : 1 - weekday;
+  dt.setDate(dt.getDate() + diffToMonday);
+  return getLocalDayKey(dt.getTime());
+}
+
+function isOverlayDayShown(dayKey, todayKey) {
+  if (overlayDayChoice.has(dayKey)) return overlayDayChoice.get(dayKey);
+  return dayKey === todayKey;
+}
+
 function renderDailyOverlayChart(allHistory) {
   const canvas = document.getElementById('dailyOverlayChart');
   const legendEl = document.getElementById('overlay-legend');
@@ -459,11 +541,7 @@ function renderDailyOverlayChart(allHistory) {
     daysMap.get(key).push(item);
   }
 
-  // Беремо останні 8 днів
-  const sortedDayKeys = Array.from(daysMap.keys()).sort().slice(-8);
-
-  const daySeriesList = sortedDayKeys.map((dayKey, idx) => {
-    const records = daysMap.get(dayKey);
+  const buildDayPoints = (records) => {
     const dayAvg = records.reduce((s, r) => s + r.minPrice, 0) / records.length;
     const slots = Array.from({ length: slotsPerDay }, () => []);
 
@@ -477,8 +555,6 @@ function renderDailyOverlayChart(allHistory) {
 
     const points = slots.map((vals, slotIdx) => {
       if (vals.length === 0) return null;
-      // Використовуємо медіану слота (замість Math.min), щоб при погодинній або 15-хвилинній агрегації
-      // графік показував реальний стійкий курс цієї години, а не випадковий секундний простріл!
       const representativeVal = vals.length >= 3 ? getMedian(vals) : Math.min(...vals);
       return {
         slotIdx,
@@ -487,22 +563,86 @@ function renderDailyOverlayChart(allHistory) {
       };
     });
 
-    const colorIdx = (sortedDayKeys.length - 1 - idx) % DAY_PALETTE.length;
+    return { dayAvg, count: records.length, points };
+  };
+
+  const averageSlotPoints = (seriesList) => {
+    const points = [];
+    for (let slotIdx = 0; slotIdx < slotsPerDay; slotIdx++) {
+      const vals = [];
+      for (const s of seriesList) {
+        const pt = s.points[slotIdx];
+        if (pt !== null) vals.push(pt.value);
+      }
+      if (vals.length > 0) {
+        points.push({
+          slotIdx,
+          minuteOfDay: slotIdx * stepMin,
+          value: vals.reduce((a, b) => a + b, 0) / vals.length,
+        });
+      }
+    }
+    return points;
+  };
+
+  const todayKey = getLocalDayKey(Date.now());
+  const currentWeekStart = getWeekStartKey(todayKey);
+  const daySeriesByKey = new Map();
+  for (const [dayKey, records] of daysMap) {
+    daySeriesByKey.set(dayKey, { dayKey, ...buildDayPoints(records) });
+  }
+
+  const avgKeys = new Set();
+  for (let i = 0; i < 7; i++) avgKeys.add(shiftDayKey(todayKey, -i));
+  const avgSeries = [...daySeriesByKey.values()].filter((s) => avgKeys.has(s.dayKey));
+
+  const currentWeekDays = [...daySeriesByKey.values()]
+    .filter((s) => getWeekStartKey(s.dayKey) === currentWeekStart)
+    .sort((a, b) => a.dayKey.localeCompare(b.dayKey));
+
+  currentWeekDays.forEach((s, idx) => {
+    const colorIdx = (currentWeekDays.length - 1 - idx) % DAY_PALETTE.length;
+    s.label = formatDayLabel(s.dayKey);
+    s.color = DAY_PALETTE[colorIdx];
+    s.isLatest = s.dayKey === todayKey;
+    s.isWeek = false;
+  });
+
+  const WEEK_PALETTE = ['#94A3B8', '#FB923C', '#38BDF8', '#C084FC', '#F472B6', '#FACC15'];
+  const weeksMap = new Map();
+  for (const s of daySeriesByKey.values()) {
+    const weekStart = getWeekStartKey(s.dayKey);
+    if (weekStart >= currentWeekStart) continue;
+    if (!weeksMap.has(weekStart)) weeksMap.set(weekStart, []);
+    weeksMap.get(weekStart).push(s);
+  }
+
+  const weekSeriesList = [...weeksMap.keys()].sort().map((weekStart, idx) => {
+    const days = weeksMap.get(weekStart).sort((a, b) => a.dayKey.localeCompare(b.dayKey));
+    const count = days.reduce((n, d) => n + d.count, 0);
+    const dayAvg = days.reduce((n, d) => n + d.dayAvg * d.count, 0) / count;
+    const from = formatShortDate(days[0].dayKey);
+    const to = formatShortDate(days[days.length - 1].dayKey);
     return {
-      dayKey,
-      label: formatDayLabel(dayKey),
-      color: DAY_PALETTE[colorIdx],
+      dayKey: `week:${weekStart}`,
+      label: days.length === 1 ? `Тиждень ${from}` : `Тиждень ${from}–${to}`,
+      color: WEEK_PALETTE[idx % WEEK_PALETTE.length],
       dayAvg,
-      count: records.length,
-      points,
-      isLatest: idx === sortedDayKeys.length - 1,
+      count,
+      dayCount: days.length,
+      points: averageSlotPoints(days),
+      isLatest: false,
+      isWeek: true,
     };
   });
 
-  // Інтерактивна легенда (клік по дню вмикає/вимикає його лінію на графіку)
-  legendEl.innerHTML = '';
-  for (const s of daySeriesList) {
-    const isHidden = hiddenOverlayDays.has(s.dayKey);
+  const legendSeries = [...weekSeriesList, ...currentWeekDays];
+
+  const makeLegendChip = (s) => {
+    const isShown = isOverlayDayShown(s.dayKey, todayKey);
+    const meta = s.isWeek
+      ? `(сер. ${s.dayAvg.toFixed(2)}₴, ${s.dayCount} дн.)`
+      : `(сер. ${s.dayAvg.toFixed(2)}₴, ${s.count} т.)`;
     const chip = document.createElement('button');
     chip.style.cssText = [
       'display:inline-flex',
@@ -512,39 +652,56 @@ function renderDailyOverlayChart(allHistory) {
       'border-radius:99px',
       'font-size:12px',
       'cursor:pointer',
-      `border:1px solid ${isHidden ? '#2B3139' : s.color}`,
-      `background:${isHidden ? '#181A20' : 'rgba(255,255,255,0.04)'}`,
-      `opacity:${isHidden ? '0.45' : '1'}`,
+      `border:1px solid ${isShown ? s.color : '#2B3139'}`,
+      `background:${isShown ? 'rgba(255,255,255,0.04)' : '#181A20'}`,
+      `opacity:${isShown ? '1' : '0.45'}`,
     ].join(';');
     chip.innerHTML = `
       <span style="width:10px;height:10px;border-radius:50%;background:${s.color};display:inline-block;"></span>
       <b>${s.label}</b>
-      <span style="color:#848E9C;font-size:11px;">(сер. ${s.dayAvg.toFixed(2)}₴, ${s.count} т.)</span>
+      <span style="color:#848E9C;font-size:11px;">${meta}</span>
     `;
     chip.onclick = () => {
-      if (hiddenOverlayDays.has(s.dayKey)) {
-        hiddenOverlayDays.delete(s.dayKey);
-      } else {
-        hiddenOverlayDays.add(s.dayKey);
-      }
+      overlayDayChoice.set(s.dayKey, !isOverlayDayShown(s.dayKey, todayKey));
       renderDailyOverlayChart(allHistory);
     };
-    legendEl.appendChild(chip);
+    return chip;
+  };
+
+  const makeLegendGroup = (className, title) => {
+    const group = document.createElement('div');
+    group.className = `legend-group ${className}`;
+    const label = document.createElement('span');
+    label.className = 'legend-group-label';
+    label.textContent = title;
+    group.appendChild(label);
+    return group;
+  };
+
+  legendEl.innerHTML = '';
+  if (weekSeriesList.length > 0) {
+    const weekGroup = makeLegendGroup('legend-weeks', 'Минулі тижні');
+    for (const s of weekSeriesList) weekGroup.appendChild(makeLegendChip(s));
+    legendEl.appendChild(weekGroup);
   }
+
+  const dayGroup = makeLegendGroup('legend-days', 'Цей тиждень');
+  for (const s of currentWeekDays) dayGroup.appendChild(makeLegendChip(s));
 
   const avgLegend = document.createElement('span');
   avgLegend.style.cssText =
     'display:inline-flex;align-items:center;gap:6px;padding:4px 10px;color:#EAECEF;font-size:12px;';
-  avgLegend.innerHTML = `<span style="width:18px;border-top:2px dashed #EAECEF;display:inline-block;"></span> <b>Середній профіль (усі дні)</b>`;
-  legendEl.appendChild(avgLegend);
+  avgLegend.innerHTML = `<span style="width:18px;border-top:2px dashed #EAECEF;display:inline-block;"></span> <b>Середнє за 7 днів</b>`;
+  dayGroup.appendChild(avgLegend);
+  legendEl.appendChild(dayGroup);
 
-  const visibleSeries = daySeriesList.filter((s) => !hiddenOverlayDays.has(s.dayKey));
+  const visibleSeries = legendSeries.filter((s) => isOverlayDayShown(s.dayKey, todayKey));
 
-  // Середній профіль рахуємо по ВСІХ днях (daySeriesList), щоб він залишався на графіку навіть коли всі окремі дні вимкнено!
+  // Штрихпунктир завжди середнє останніх 7 календарних днів і не залежить від того, які дні увімкнені в легенді
   const avgProfilePoints = [];
   for (let slotIdx = 0; slotIdx < slotsPerDay; slotIdx++) {
     const vals = [];
-    for (const s of daySeriesList) {
+    for (const s of avgSeries) {
       const pt = s.points[slotIdx];
       if (pt !== null) vals.push(pt.value);
     }
@@ -647,7 +804,7 @@ function renderDailyOverlayChart(allHistory) {
 
     ctx.save();
     ctx.strokeStyle = s.color;
-    ctx.lineWidth = s.isLatest ? 2.6 : 1.8;
+    ctx.lineWidth = s.isWeek ? 2.2 : s.isLatest ? 2.6 : 1.8;
     ctx.beginPath();
 
     validPts.forEach((pt, i) => {
@@ -658,13 +815,15 @@ function renderDailyOverlayChart(allHistory) {
     });
     ctx.stroke();
 
-    ctx.fillStyle = s.color;
-    for (const pt of validPts) {
-      const x = xForMinute(pt.minuteOfDay);
-      const y = yForValue(pt.value);
-      ctx.beginPath();
-      ctx.arc(x, y, s.isLatest ? 3 : 2.2, 0, Math.PI * 2);
-      ctx.fill();
+    if (!s.isWeek) {
+      ctx.fillStyle = s.color;
+      for (const pt of validPts) {
+        const x = xForMinute(pt.minuteOfDay);
+        const y = yForValue(pt.value);
+        ctx.beginPath();
+        ctx.arc(x, y, s.isLatest ? 3 : 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     ctx.restore();
   }
@@ -672,8 +831,8 @@ function renderDailyOverlayChart(allHistory) {
   if (avgProfilePoints.length > 0) {
     ctx.save();
     ctx.strokeStyle = '#FFFFFF';
-    ctx.lineWidth = visibleSeries.length === 0 ? 2.8 : 2.2;
-    ctx.setLineDash(visibleSeries.length === 0 ? [] : [6, 4]);
+    ctx.lineWidth = 2.2;
+    ctx.setLineDash([6, 4]);
     ctx.beginPath();
     avgProfilePoints.forEach((pt, i) => {
       const x = xForMinute(pt.minuteOfDay);
@@ -682,27 +841,71 @@ function renderDailyOverlayChart(allHistory) {
       else ctx.lineTo(x, y);
     });
     ctx.stroke();
-
-    if (visibleSeries.length === 0) {
-      ctx.fillStyle = '#FFFFFF';
-      for (const pt of avgProfilePoints) {
-        const x = xForMinute(pt.minuteOfDay);
-        const y = yForValue(pt.value);
-        ctx.beginPath();
-        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
     ctx.restore();
   }
 }
 
-function renderTable(history) {
+function oldestHistoryDayKey(allHistory) {
+  const today = getLocalDayKey(Date.now());
+  let oldest = today;
+  for (const item of allHistory || []) {
+    const key = getLocalDayKey(item.bucketTs);
+    if (key < oldest) oldest = key;
+  }
+  return oldest;
+}
+
+function clampHistoryDay(dayKey, allHistory) {
+  const today = getLocalDayKey(Date.now());
+  const oldest = oldestHistoryDayKey(allHistory);
+  if (!dayKey || dayKey > today) return today;
+  if (dayKey < oldest) return oldest;
+  return dayKey;
+}
+
+function renderTable(allHistory) {
   const tbody = document.getElementById('history-tbody');
+  const dayLabelEl = document.getElementById('hist-day-label');
+  const dayHintEl = document.getElementById('hist-day-hint');
+  const btnPrev = document.getElementById('btn-hist-prev');
+  const btnNext = document.getElementById('btn-hist-next');
   tbody.innerHTML = '';
 
-  const reversed = [...history].reverse().slice(0, 300);
-  for (const row of reversed) {
+  const todayKey = getLocalDayKey(Date.now());
+  const oldestKey = oldestHistoryDayKey(allHistory);
+  const dayKey = clampHistoryDay(selectedHistoryDayKey || todayKey, allHistory);
+  selectedHistoryDayKey = dayKey;
+  const isToday = dayKey === todayKey;
+
+  if (dayLabelEl) dayLabelEl.textContent = formatHeatmapDayLabel(dayKey);
+  if (btnPrev) {
+    btnPrev.disabled = dayKey <= oldestKey;
+    btnPrev.title = btnPrev.disabled ? 'Далі назад замірів немає' : 'Попередній день';
+  }
+  if (btnNext) {
+    btnNext.disabled = isToday;
+    btnNext.title = isToday ? 'Майбутні дні недоступні' : 'Наступний день';
+  }
+
+  const history = (allHistory || [])
+    .filter((row) => getLocalDayKey(row.bucketTs) === dayKey)
+    .sort((a, b) => b.bucketTs - a.bucketTs);
+
+  if (dayHintEl) {
+    const scope = isToday ? 'сьогодні' : 'цей день';
+    dayHintEl.textContent = history.length
+      ? `Лише заміри за ${scope}: ${history.length}. Нові записи зверху.`
+      : `За ${scope} замірів ще немає.`;
+  }
+
+  if (history.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="8" style="color:#848E9C;text-align:center;">Немає замірів за цей день</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+
+  for (const row of history) {
     const tr = document.createElement('tr');
     const spread =
       row.maxPriceInBucket && row.maxPriceInBucket !== row.minPrice
@@ -768,7 +971,6 @@ function saveDashboardTelegramSettings() {
     const prev = res.trackerSettings || {};
     const next = {
       ...prev,
-      dailyReportHour: parseInt(selReportHour.value, 10),
       telegram: {
         ...(prev.telegram || {}),
         enabled: true,
@@ -789,8 +991,6 @@ if (inpTgChat) {
   inpTgChat.onchange = saveDashboardTelegramSettings;
 }
 
-selReportHour.onchange = saveDashboardTelegramSettings;
-
 btnRefresh.onclick = () => {
   btnRefresh.textContent = '⏳ Оновлюємо...';
   chrome.runtime.sendMessage({ type: 'FORCE_SAMPLE' }, () => {
@@ -800,6 +1000,50 @@ btnRefresh.onclick = () => {
 };
 
 selRange.onchange = () => loadAndRender();
+
+const btnHourPrev = document.getElementById('btn-hour-prev');
+const btnHourNext = document.getElementById('btn-hour-next');
+if (btnHourPrev) {
+  btnHourPrev.onclick = () => {
+    const todayKey = getLocalDayKey(Date.now());
+    const current = clampHeatmapDay(selectedHeatmapDayKey || todayKey, fullHistory);
+    const oldest = oldestHistoryDayKey(fullHistory);
+    if (current <= oldest) return;
+    selectedHeatmapDayKey = shiftDayKey(current, -1);
+    renderHourlyHeatmap(fullHistory);
+  };
+}
+if (btnHourNext) {
+  btnHourNext.onclick = () => {
+    const todayKey = getLocalDayKey(Date.now());
+    const current = clampHeatmapDay(selectedHeatmapDayKey || todayKey, fullHistory);
+    if (current >= todayKey) return;
+    selectedHeatmapDayKey = shiftDayKey(current, 1);
+    renderHourlyHeatmap(fullHistory);
+  };
+}
+
+const btnHistPrev = document.getElementById('btn-hist-prev');
+const btnHistNext = document.getElementById('btn-hist-next');
+if (btnHistPrev) {
+  btnHistPrev.onclick = () => {
+    const todayKey = getLocalDayKey(Date.now());
+    const current = clampHistoryDay(selectedHistoryDayKey || todayKey, fullHistory);
+    const oldest = oldestHistoryDayKey(fullHistory);
+    if (current <= oldest) return;
+    selectedHistoryDayKey = shiftDayKey(current, -1);
+    renderTable(fullHistory);
+  };
+}
+if (btnHistNext) {
+  btnHistNext.onclick = () => {
+    const todayKey = getLocalDayKey(Date.now());
+    const current = clampHistoryDay(selectedHistoryDayKey || todayKey, fullHistory);
+    if (current >= todayKey) return;
+    selectedHistoryDayKey = shiftDayKey(current, 1);
+    renderTable(fullHistory);
+  };
+}
 if (chkFilterOutliers) chkFilterOutliers.onchange = () => loadAndRender();
 if (selOverlayMode) selOverlayMode.onchange = () => renderDailyOverlayChart(fullHistory);
 if (selOverlayStep) selOverlayStep.onchange = () => renderDailyOverlayChart(fullHistory);
@@ -815,16 +1059,6 @@ if (selPollInterval) {
     });
   };
 }
-
-inpMinLimit.onchange = () => {
-  const val = parseFloat(inpMinLimit.value) || 500;
-  chrome.storage.local.get(['trackerSettings'], (res) => {
-    const next = { ...(res.trackerSettings || {}), minOrderLimitUAH: val };
-    chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: next }, () => {
-      loadAndRender();
-    });
-  });
-};
 
 btnExport.onclick = () => {
   if (!cachedHistory.length) return alert('Немає записів для експорту.');
@@ -890,6 +1124,12 @@ if (inpRemoteUrl) {
     });
   };
 }
+
+let chartResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(chartResizeTimer);
+  chartResizeTimer = setTimeout(() => renderChart(cachedHistory), 120);
+});
 
 // Одразу при відкритті дашборду підтягуємо свіжу базу з Home Assistant
 loadAndRender();
