@@ -68,11 +68,19 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'SEND_TELEGRAM') {
-    const { botToken, chatId, text, title, body } = message.payload;
+function postTelegram(method, botToken, body) {
+  return fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then((res) => res.json());
+}
 
-    if (title && chrome.notifications) {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'SEND_TELEGRAM' || message.type === 'EDIT_TELEGRAM') {
+    const { botToken, chatId, text, title, body, messageId, plain } = message.payload || {};
+
+    if (message.type === 'SEND_TELEGRAM' && title && chrome.notifications) {
       chrome.notifications.create({
         type: 'basic',
         iconUrl: 'https://bin.bnbstatic.com/static/images/common/favicon.ico',
@@ -82,19 +90,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     }
 
-    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-    fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: text,
-        parse_mode: 'Markdown',
-      }),
-    })
-      .then((res) => res.json())
+    const apiMethod = message.type === 'EDIT_TELEGRAM' ? 'editMessageText' : 'sendMessage';
+    const payload = {
+      chat_id: chatId,
+      text,
+    };
+    if (!plain) payload.parse_mode = 'Markdown';
+    if (message.type === 'EDIT_TELEGRAM') payload.message_id = messageId;
+
+    postTelegram(apiMethod, botToken, payload)
       .then((data) => {
-        sendResponse({ ok: true, data });
+        const untouched = String(data?.description || '').toLowerCase().includes('message is not modified');
+        sendResponse({ ok: Boolean(data?.ok) || untouched, data });
       })
       .catch((err) => {
         sendResponse({ ok: false, error: String(err) });

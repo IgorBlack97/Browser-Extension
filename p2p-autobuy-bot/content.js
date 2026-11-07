@@ -983,6 +983,101 @@
 
   let observer = null;
   let intervalId = null;
+  let heartbeatTimer = null;
+  let heartbeatMessageId = null;
+
+  function formatHeartbeatStamp() {
+    return new Date().toLocaleString('uk-UA', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  }
+
+  function heartbeatText(running) {
+    const mode = CONFIG.demoMode ? 'демо' : 'купівля';
+    const stats = `Оновлень: ${refreshCount}\nЗмін: ${scanCount}\nЗнайдено: ${demoFoundCount}`;
+    return running
+      ? `🟢 P2P бот працює (${mode})\nОновлено: ${formatHeartbeatStamp()}\n${stats}`
+      : `🔴 P2P бот зупинено\nЧас: ${formatHeartbeatStamp()}\n${stats}`;
+  }
+
+  function callTelegram(type, extra) {
+    return new Promise((resolve) => {
+      if (!CONFIG.telegram.enabled || !CONFIG.telegram.botToken || !CONFIG.telegram.chatId) {
+        resolve(null);
+        return;
+      }
+      if (!isExtensionContextValid() || !chrome.runtime?.sendMessage) {
+        resolve(null);
+        return;
+      }
+      try {
+        chrome.runtime.sendMessage({
+          type,
+          payload: {
+            botToken: CONFIG.telegram.botToken,
+            chatId: CONFIG.telegram.chatId,
+            plain: true,
+            ...extra,
+          },
+        }, (res) => {
+          if (chrome.runtime.lastError) resolve(null);
+          else resolve(res || null);
+        });
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  }
+
+  async function sendHeartbeatMessage() {
+    const res = await callTelegram('SEND_TELEGRAM', { text: heartbeatText(true) });
+    const id = res?.data?.result?.message_id;
+    if (!id) return;
+    if (!isRunning) {
+      await callTelegram('EDIT_TELEGRAM', { messageId: id, text: heartbeatText(false) });
+      return;
+    }
+    heartbeatMessageId = id;
+  }
+
+  async function refreshHeartbeat() {
+    if (!isRunning) return;
+    if (!heartbeatMessageId) {
+      await sendHeartbeatMessage();
+      return;
+    }
+    const res = await callTelegram('EDIT_TELEGRAM', {
+      messageId: heartbeatMessageId,
+      text: heartbeatText(true),
+    });
+    if (res && res.ok === false) {
+      heartbeatMessageId = null;
+      await sendHeartbeatMessage();
+    }
+  }
+
+  function startHeartbeat() {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatMessageId = null;
+    sendHeartbeatMessage();
+    heartbeatTimer = setInterval(refreshHeartbeat, 60 * 1000);
+  }
+
+  function stopHeartbeat() {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+    const messageId = heartbeatMessageId;
+    heartbeatMessageId = null;
+    if (messageId) {
+      callTelegram('EDIT_TELEGRAM', { messageId, text: heartbeatText(false) });
+    }
+  }
 
   function startBot() {
     isRunning = true;
@@ -1005,12 +1100,14 @@
 
     updateBadge('🔍 Скануємо таблицю...', null, '#0ECB81', true);
     scanTable(true);
+    startHeartbeat();
   }
 
   function stopBot(reason = 'Зупинено.') {
     isRunning = false;
     CONFIG.enabled = false;
     saveConfig();
+    stopHeartbeat();
 
     if (observer) observer.disconnect();
     if (intervalId) clearInterval(intervalId);
