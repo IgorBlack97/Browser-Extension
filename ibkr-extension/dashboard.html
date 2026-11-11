@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>IBKR Portfolio X-Ray</title>
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>IBKR Portfolio X-Ray</h1>
+        <p class="lede">Позиції з Interactive Brokers, розкладені на компанії всередині фондів і на класи активів. Розрахунок у браузері, файли фондів — з TickerInside.</p>
+      </div>
+      <div class="controls">
+        <div id="ccy-toggle" class="ccy-toggle" role="group" aria-label="Валюта звіту">
+          <button type="button" data-ccy="EUR" class="active">EUR</button>
+          <button type="button" data-ccy="USD">USD</button>
+        </div>
+        <select id="account" hidden></select>
+        <button id="refresh" class="blue">Оновити аналіз</button>
+        <button id="pull" class="primary">Зчитати з вкладки IBKR</button>
+      </div>
+    </header>
+    <div id="app"></div>
+    <footer>
+      Позиції лишаються в цьому браузері. На TickerInside йдуть лише тікери фондів.
+      Дані фондів: <a href="https://tickerinside.com/api/" target="_blank" rel="noreferrer">TickerInside</a>, CC BY 4.0.
+      Це розклад портфеля, не інвестиційна порада.
+    </footer>
+  </div>
+  <script type="module" src="dashboard.js"></script>
+</body>
+</html>

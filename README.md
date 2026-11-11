@@ -1,6 +1,6 @@
-# Binance P2P Browser Extensions
+# Browser Extensions
 
-У цьому репозиторії знаходяться 3 розширення для роботи з Binance P2P (USDT/UAH):
+У цьому репозиторії зібрані браузерні розширення. Три з них для Binance P2P (USDT/UAH):
 
 1. **`p2p-autobuy-bot/`** — **Бойовий бот для автопокупки (`🤖 Binance P2P Fast Auto-Buy Bot`)**
    Автоматичний пошук і викуп ордерів USDT/UAH (PrivatBank / Monobank) за заданою ціною та діапазоном суми + демо-режим і миттєві сповіщення в Telegram.
@@ -11,3 +11,6 @@
 3. **`p2p-ha-tracker/`** — **Серверний трекер курсу 24/7 для Home Assistant (`🏠 Binance P2P Remote Tracker`)**
    - `ha-server/p2p_collector.py` — Python-скрипт для Home Assistant, який 24/7 збирає курс у SQLite та JSON і надсилає щоденне зведення о 21:00 у Telegram.
    - `browser-extension/` — браузерний плагін, який читає зібрану базу з Home Assistant (`https://ha.ibtek.uk/local/p2p-history.json`) і будує графіки.
+
+4. **`ibkr-extension/`** — **X-Ray портфеля Interactive Brokers**
+   Зчитує позиції з Client Portal і розкладає їх на компанії всередині фондів та на класи активів (акції, облігації, золото, готівка) через TickerInside.

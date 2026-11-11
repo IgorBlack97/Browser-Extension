@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>IBKR Portfolio X-Ray</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 360px;
+      background: #181A20;
+      color: #EAECEF;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 14px 16px 16px;
+      font-size: 13px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #2B3139;
+    }
+    .title { font-weight: 700; font-size: 14px; color: #FCD535; }
+    .status {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 99px;
+      border: 1px solid #474D57;
+      color: #848E9C;
+    }
+    .status.on { color: #0ECB81; border-color: #0ECB81; background: rgba(14, 203, 129, 0.12); }
+    .card {
+      background: #1E2329;
+      border: 1px solid #2B3139;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+    .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .muted { color: #848E9C; font-size: 12px; }
+    .value { font-size: 22px; font-weight: 700; color: #EAECEF; }
+    .totals { display: flex; flex-direction: column; align-items: flex-end; }
+    .balance { margin-top: 2px; color: #848E9C; font-size: 12px; font-weight: 500; }
+    .sub { margin-top: 4px; color: #848E9C; font-size: 11px; line-height: 1.4; }
+    label { color: #848E9C; font-size: 10px; display: block; margin-bottom: 4px; }
+    input[type="text"] {
+      width: 100%;
+      background: #2B3139;
+      color: #fff;
+      border: 1px solid #474D57;
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    input:focus { outline: none; border-color: #FCD535; }
+    button {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 650;
+      cursor: pointer;
+      border: none;
+      margin-bottom: 8px;
+    }
+    button.primary { background: #FCD535; color: #181A20; }
+    button.blue { background: #3B82F6; color: #fff; }
+    button.ghost {
+      background: transparent;
+      color: #EAECEF;
+      border: 1px solid #2B3139;
+      margin-bottom: 0;
+    }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    #message { min-height: 16px; }
+    details { margin-bottom: 10px; }
+    summary { cursor: pointer; color: #848E9C; font-size: 12px; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">IBKR Portfolio X-Ray</div>
+    <span id="status" class="status">НЕМАЄ ДАНИХ</span>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <span class="muted">Сума позицій</span>
+      <div class="totals">
+        <span id="total" class="value">—</span>
+        <span id="balance" class="balance"></span>
+      </div>
+    </div>
+    <div id="meta" class="sub">Увійдіть у Client Portal і відкрийте Portfolio.</div>
+  </div>
+
+  <button id="pull" class="primary">Зчитати з вкладки IBKR</button>
+  <button id="open" class="blue">Відкрити аналітику</button>
+  <div id="message" class="sub"></div>
+
+  <details>
+    <summary>Client Portal Gateway (localhost)</summary>
+    <label for="gateway">Адреса gateway</label>
+    <input id="gateway" type="text" placeholder="https://localhost:5000" spellcheck="false">
+    <button id="pull-gateway" class="ghost">Зчитати з gateway</button>
+  </details>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

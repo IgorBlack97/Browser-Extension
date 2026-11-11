@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "IBKR Portfolio X-Ray",
+  "version": "0.1.1",
+  "minimum_chrome_version": "111",
+  "description": "Зчитує позиції з Client Portal Interactive Brokers і рахує X-Ray компаній та частки акцій, облігацій, золота через TickerInside.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://*.interactivebrokers.com/*",
+    "https://interactivebrokers.com/*",
+    "https://*.interactivebrokers.co.uk/*",
+    "https://*.interactivebrokers.eu/*",
+    "https://*.interactivebrokers.com.hk/*",
+    "https://*.interactivebrokers.com.au/*",
+    "https://*.interactivebrokers.ca/*",
+    "https://*.interactivebrokers.com.sg/*",
+    "https://*.ibkr.com/*",
+    "https://api.ibkr.com/*",
+    "https://localhost:5000/*",
+    "http://localhost:5000/*",
+    "https://tickerinside.com/*",
+    "https://api.frankfurter.app/*",
+    "https://api.frankfurter.dev/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "IBKR Portfolio X-Ray",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.interactivebrokers.com/*",
+        "https://interactivebrokers.com/*",
+        "https://*.interactivebrokers.co.uk/*",
+        "https://*.interactivebrokers.eu/*",
+        "https://*.interactivebrokers.com.hk/*",
+        "https://*.interactivebrokers.com.au/*",
+        "https://*.interactivebrokers.ca/*",
+        "https://*.interactivebrokers.com.sg/*",
+        "https://*.ibkr.com/*",
+        "https://localhost:5000/*",
+        "http://localhost:5000/*"
+      ],
+      "js": ["page-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*.interactivebrokers.com/*",
+        "https://interactivebrokers.com/*",
+        "https://*.interactivebrokers.co.uk/*",
+        "https://*.interactivebrokers.eu/*",
+        "https://*.interactivebrokers.com.hk/*",
+        "https://*.interactivebrokers.com.au/*",
+        "https://*.interactivebrokers.ca/*",
+        "https://*.interactivebrokers.com.sg/*",
+        "https://*.ibkr.com/*",
+        "https://localhost:5000/*",
+        "http://localhost:5000/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
