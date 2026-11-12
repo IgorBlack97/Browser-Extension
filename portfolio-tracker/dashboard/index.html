@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>Портфель</title>
+  <link rel="stylesheet" href="portfolio.css">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Портфель</h1>
+        <p id="updated" class="lede">Завантаження…</p>
+      </div>
+      <div class="controls">
+        <div id="ccy-toggle" class="ccy-toggle" role="group" aria-label="Валюта звіту">
+          <button type="button" data-ccy="EUR" class="active">EUR</button>
+          <button type="button" data-ccy="USD">USD</button>
+        </div>
+      </div>
+    </header>
+    <div id="app"></div>
+    <footer>Ціни оновлює Home Assistant щогодини. X-Ray і склад портфеля рахуються в браузері під час відкриття сторінки, дані фондів — <a href="https://tickerinside.com/api/" target="_blank" rel="noreferrer">TickerInside</a>.</footer>
+  </div>
+  <script type="module" src="portfolio.js"></script>
+</body>
+</html>

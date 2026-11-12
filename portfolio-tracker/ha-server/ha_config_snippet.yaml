@@ -1,0 +1,58 @@
+# Окремий проект портфеля. До збирача P2P не входить.
+#
+# Папки config немає. Клади portfolio-tracker поруч із configuration.yaml і P2P_monitoring:
+#   configuration.yaml
+#   secrets.yaml
+#   www/
+#   P2P_monitoring/
+#   portfolio-tracker/
+#
+# 1. Скопіюй папку portfolio-tracker у цей корінь.
+# 2. У secrets.yaml додай:
+#      portfolio_tg_bot_token: "123:ABC"
+#      portfolio_tg_chat_id: "123456"
+#      portfolio_webhook_id: "довгий-випадковий-рядок"
+#      portfolio_report_hour: "21"
+#      portfolio_alert_pct: "3"
+# 3. Додай блоки нижче у configuration.yaml і перезапусти Home Assistant.
+# 4. У плагіні IBKR вкажи вебхук:
+#      https://ha.ibtek.uk/api/webhook/<portfolio_webhook_id>
+# 5. Дашборд: https://ha.ibtek.uk/local/portfolio.html
+
+command_line:
+  - sensor:
+      name: "Portfolio value USD"
+      unique_id: portfolio_value_usd
+      command: "python3 portfolio-tracker/ha-server/portfolio_collector.py --print-total"
+      scan_interval: 300
+      command_timeout: 20
+      unit_of_measurement: "USD"
+
+shell_command:
+  portfolio_sync: "python3 portfolio-tracker/ha-server/portfolio_collector.py --sync-b64 '{{ b64 }}'"
+  portfolio_hourly: "python3 portfolio-tracker/ha-server/portfolio_collector.py --hourly"
+  portfolio_report: "python3 portfolio-tracker/ha-server/portfolio_collector.py --report"
+
+automation:
+  - id: portfolio_sync_from_extension
+    alias: Портфель — прийняти знімок з плагіна
+    trigger:
+      - trigger: webhook
+        webhook_id: !secret portfolio_webhook_id
+        allowed_methods:
+          - POST
+        local_only: false
+    action:
+      - action: shell_command.portfolio_sync
+        data:
+          b64: "{{ trigger.json.b64 }}"
+
+  - id: portfolio_hourly_prices
+    alias: Портфель — оновити ціни
+    trigger:
+      - trigger: time_pattern
+        minutes: "5"
+      - trigger: homeassistant
+        event: start
+    action:
+      - action: shell_command.portfolio_hourly

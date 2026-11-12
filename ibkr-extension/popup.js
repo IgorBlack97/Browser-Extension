@@ -1,3 +1,4 @@
+import { accountCashLines, positionsFromSnapshot } from "./lib/analyze.js";
 import { mergeAccountCash, positionsInEur } from "./lib/fx.js";
 
 const statusEl = document.querySelector("#status");
@@ -6,6 +7,8 @@ const balanceEl = document.querySelector("#balance");
 const metaEl = document.querySelector("#meta");
 const messageEl = document.querySelector("#message");
 const gatewayEl = document.querySelector("#gateway");
+const haUrlEl = document.querySelector("#ha-url");
+const syncHaBtn = document.querySelector("#sync-ha");
 const pullBtn = document.querySelector("#pull");
 const gatewayBtn = document.querySelector("#pull-gateway");
 
@@ -85,9 +88,29 @@ async function render(snapshot) {
   }
 }
 
+function syncPayload(snapshot) {
+  const positions = positionsFromSnapshot(snapshot, "all")
+    .filter((position) => position.assetClass !== "CASH")
+    .map((position) => ({
+      ticker: position.ticker,
+      name: position.name,
+      quantity: position.quantity,
+      avgPrice: position.avgPrice,
+      currency: position.nativeCurrency,
+      marketValue: position.nativeValue,
+      marketCurrency: position.nativeCurrency,
+    }));
+  const cash = accountCashLines(snapshot, "all").map((line) => ({
+    currency: line.currency,
+    amount: line.amount,
+  }));
+  return { syncedAt: new Date().toISOString(), source: "ibkr", positions, cash };
+}
+
 async function load() {
-  const stored = await chrome.storage.local.get(["snapshot", "gatewayUrl"]);
+  const stored = await chrome.storage.local.get(["snapshot", "gatewayUrl", "haWebhook"]);
   gatewayEl.value = stored.gatewayUrl || "https://localhost:5000";
+  haUrlEl.value = stored.haWebhook || "";
   render(stored.snapshot);
 }
 
@@ -128,6 +151,38 @@ gatewayBtn.addEventListener("click", async () => {
     messageEl.textContent = "Позиції з gateway збережено.";
   } finally {
     setBusy(gatewayBtn, false);
+  }
+});
+
+syncHaBtn.addEventListener("click", async () => {
+  const url = haUrlEl.value.trim();
+  await chrome.storage.local.set({ haWebhook: url });
+  if (!url) {
+    messageEl.textContent = "Вкажи вебхук Home Assistant.";
+    return;
+  }
+  const stored = await chrome.storage.local.get("snapshot");
+  if (!stored.snapshot) {
+    messageEl.textContent = "Спочатку зчитай портфель із вкладки IBKR.";
+    return;
+  }
+  const payload = syncPayload(stored.snapshot);
+  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+  messageEl.textContent = "Надсилаю склад рахунку…";
+  syncHaBtn.disabled = true;
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ b64, source: "ibkr" }),
+    });
+    messageEl.textContent = response.ok
+      ? `Надіслано ${payload.positions.length} позицій.`
+      : `Home Assistant відповів ${response.status}.`;
+  } catch (error) {
+    messageEl.textContent = error.message || "Не вдалося достукатися до Home Assistant.";
+  } finally {
+    syncHaBtn.disabled = false;
   }
 });
 

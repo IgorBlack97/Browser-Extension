@@ -103,6 +103,13 @@
   <div id="message" class="sub"></div>
 
   <details>
+    <summary>Home Assistant</summary>
+    <label for="ha-url">Вебхук портфеля</label>
+    <input id="ha-url" type="text" placeholder="https://ha.ibtek.uk/api/webhook/…" spellcheck="false">
+    <button id="sync-ha" class="ghost">Надіслати портфель у Home Assistant</button>
+  </details>
+
+  <details>
     <summary>Client Portal Gateway (localhost)</summary>
     <label for="gateway">Адреса gateway</label>
     <input id="gateway" type="text" placeholder="https://localhost:5000" spellcheck="false">

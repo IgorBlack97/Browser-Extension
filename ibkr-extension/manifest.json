@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "IBKR Portfolio X-Ray",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "minimum_chrome_version": "111",
   "description": "Зчитує позиції з Client Portal Interactive Brokers і рахує X-Ray компаній та частки акцій, облігацій, золота через TickerInside.",
   "permissions": ["storage", "tabs"],
@@ -20,7 +20,11 @@
     "http://localhost:5000/*",
     "https://tickerinside.com/*",
     "https://api.frankfurter.app/*",
-    "https://api.frankfurter.dev/*"
+    "https://api.frankfurter.dev/*",
+    "https://ha.ibtek.uk/*",
+    "https://*.ibtek.uk/*",
+    "http://homeassistant.local/*",
+    "http://homeassistant.local:8123/*"
   ],
   "background": {
     "service_worker": "background.js"

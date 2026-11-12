@@ -13,4 +13,7 @@
    - `browser-extension/` — браузерний плагін, який читає зібрану базу з Home Assistant (`https://ha.ibtek.uk/local/p2p-history.json`) і будує графіки.
 
 4. **`ibkr-extension/`** — **X-Ray портфеля Interactive Brokers**
-   Зчитує позиції з Client Portal і розкладає їх на компанії всередині фондів та на класи активів (акції, облігації, золото, готівка) через TickerInside.
+   Зчитує позиції з Client Portal і розкладає їх на компанії всередині фондів та на класи активів (акції, облігації, золото, готівка) через TickerInside. Окрема кнопка надсилає склад рахунку в Home Assistant.
+
+5. **`portfolio-tracker/`** — **Історія вартості портфеля на Home Assistant**
+   Окремо від P2P. Папку кладуть поруч із `configuration.yaml` (окремої папки `config` немає). Скрипт раз на годину бере ціни з Yahoo Finance. Дашборд: `https://ha.ibtek.uk/local/portfolio.html`.
