@@ -29,11 +29,23 @@ function formatSignedPct(value) {
   return `${value > 0 ? "+" : ""}${pctFmt.format(value)}%`;
 }
 
-function money(usd) {
-  if (usd == null || !Number.isFinite(usd)) return "—";
+function inCurrency(usd) {
+  if (usd == null || !Number.isFinite(usd)) return null;
   const usdPerEur = state.report?.usdPerEur;
-  const amount = state.currency === "EUR" && usdPerEur ? usd / usdPerEur : usd;
+  return state.currency === "EUR" && usdPerEur ? usd / usdPerEur : usd;
+}
+
+function money(usd) {
+  const amount = inCurrency(usd);
+  if (amount == null) return "—";
   return `${moneyFmt.format(amount)} ${state.currency}`;
+}
+
+function pointLabel(bucket) {
+  if (!bucket) return "";
+  const [date, hour] = bucket.split("T");
+  const [, month, day] = (date || "").split("-");
+  return `${day}.${month} ${hour || "00"}:00`;
 }
 
 function mixColor(from, to, amount) {
@@ -169,8 +181,8 @@ function render() {
       </section>
     </div>
     <section class="card">
-      <h2 class="section-title">Динаміка вартості</h2>
-      <canvas id="chart" width="1000" height="280"></canvas>
+      <h2 class="section-title">Динаміка вартості <span class="note" id="chart-note"></span></h2>
+      <canvas id="chart" width="1000" height="320"></canvas>
     </section>`;
   document.querySelector("#include-cash").addEventListener("click", () => {
     state.includeCash = !state.includeCash;
@@ -181,32 +193,75 @@ function render() {
 
 function draw(points) {
   const canvas = document.querySelector("#chart");
+  const note = document.querySelector("#chart-note");
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
   const width = canvas.width;
   const height = canvas.height;
   ctx.clearRect(0, 0, width, height);
   const rows = points || [];
-  if (rows.length < 2) {
+  if (note) {
+    note.textContent = rows.length
+      ? `${rows.length} точок · ${pointLabel(rows[0].t)} — ${pointLabel(rows[rows.length - 1].t)}`
+      : "ще немає точок";
+  }
+  if (!rows.length) {
     ctx.fillStyle = "#848E9C";
     ctx.font = "16px sans-serif";
-    ctx.fillText("Графік з'явиться після другої годинної оцінки", 24, 48);
+    ctx.fillText("Ще немає жодної оцінки", 80, 48);
     return;
   }
-  const values = rows.map((point) => point.usd);
+  const values = rows.map((point) => inCurrency(point.usd));
   const min = Math.min(...values);
   const max = Math.max(...values);
   const span = max - min || 1;
+  const left = 88;
+  const right = 16;
+  const top = 16;
+  const bottom = 36;
+  const x = (index) => left + (rows.length === 1 ? 0.5 : index / (rows.length - 1)) * (width - left - right);
+  const y = (value) => top + (1 - (value - min) / span) * (height - top - bottom);
+
+  ctx.strokeStyle = "#2B3139";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(left, top);
+  ctx.lineTo(left, height - bottom);
+  ctx.lineTo(width - right, height - bottom);
+  ctx.stroke();
+
+  ctx.fillStyle = "#848E9C";
+  ctx.font = "13px sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText(moneyFmt.format(max), left - 8, y(max) + 4);
+  if (max !== min) {
+    const mid = min + span / 2;
+    ctx.fillText(moneyFmt.format(mid), left - 8, y(mid) + 4);
+    ctx.fillText(moneyFmt.format(min), left - 8, y(min) + 4);
+  }
+
+  ctx.textAlign = "center";
+  const marks = rows.length === 1 ? [0] : [0, Math.floor((rows.length - 1) / 2), rows.length - 1];
+  [...new Set(marks)].forEach((index) => {
+    ctx.fillText(pointLabel(rows[index].t), x(index), height - 12);
+  });
+
   ctx.strokeStyle = "#FCD535";
   ctx.lineWidth = 2;
   ctx.beginPath();
   rows.forEach((point, index) => {
-    const x = 24 + (index / (rows.length - 1)) * (width - 48);
-    const y = height - 28 - ((point.usd - min) / span) * (height - 56);
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+    const px = x(index);
+    const py = y(inCurrency(point.usd));
+    if (index === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
   });
   ctx.stroke();
+  rows.forEach((point, index) => {
+    ctx.fillStyle = "#FCD535";
+    ctx.beginPath();
+    ctx.arc(x(index), y(inCurrency(point.usd)), 3, 0, Math.PI * 2);
+    ctx.fill();
+  });
 }
 
 function paintCurrency() {
