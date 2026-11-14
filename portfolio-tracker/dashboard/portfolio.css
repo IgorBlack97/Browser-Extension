@@ -221,6 +221,22 @@ textarea { width: 100%; min-height: 110px; resize: vertical; }
 .tile.narrow span { font-size: 10px; line-height: 1.1; margin: 0; }
 .table-scroll { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 #send-report { font-weight: 700; }
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.icon-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.icon-btn .eye-off { display: none; }
+.icon-btn.off .eye-on { display: none; }
+.icon-btn.off .eye-off { display: block; }
+.gate { max-width: 360px; }
+.gate form { display: flex; flex-direction: column; gap: 10px; }
+.gate input { width: 100%; }
+.gate .warn { margin: 0; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .chip-row button { background: var(--card-2); color: var(--muted); font-weight: 700; }
 .chip-row button.active { background: var(--yellow); color: #181A20; border-color: var(--yellow); }

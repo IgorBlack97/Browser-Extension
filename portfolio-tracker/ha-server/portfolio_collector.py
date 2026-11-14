@@ -8,6 +8,7 @@
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import sqlite3
@@ -39,7 +40,8 @@ HA_ROOT = find_ha_root()
 
 DB_PATH = os.environ.get("PORTFOLIO_DB_PATH", os.path.join(SCRIPT_DIR, "portfolio.db"))
 WWW_DIR = os.path.join(HA_ROOT, "www")
-JSON_PATH = os.environ.get("PORTFOLIO_JSON_PATH", os.path.join(WWW_DIR, "portfolio.json"))
+DATA_PATH = os.environ.get("PORTFOLIO_JSON_PATH", os.path.join(SCRIPT_DIR, "portfolio-data.json"))
+PUBLIC_JSON = os.path.join(WWW_DIR, "portfolio.json")
 SECRETS_PATH = (
     os.path.join(SCRIPT_DIR, "secrets.yaml")
     if os.path.isfile(os.path.join(SCRIPT_DIR, "secrets.yaml"))
@@ -719,11 +721,50 @@ def publish(conn, latest=None):
             except Exception:
                 item["valueUsd"] = None
         latest = build_latest(conn, holdings, cash_rows, invested, cash_usd, rates, fx_date)
-    os.makedirs(os.path.dirname(JSON_PATH), exist_ok=True)
-    with open(JSON_PATH, "w", encoding="utf-8") as handle:
-        json.dump(latest, handle, ensure_ascii=False, indent=2)
+    write_json(DATA_PATH, latest)
+    publish_page(latest)
     copy_dashboard()
-    log(f"записано {JSON_PATH}")
+    log("записано дані портфеля")
+
+
+def write_json(path, payload):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+
+
+def page_password():
+    return load_secrets().get("portfolio_page_password") or ""
+
+
+def publish_page(latest):
+    password = page_password()
+    os.makedirs(WWW_DIR, exist_ok=True)
+    write_json(PUBLIC_JSON, {"locked": True})
+    vault_dir = os.path.join(WWW_DIR, "v")
+    os.makedirs(vault_dir, exist_ok=True)
+    if not password:
+        log("сторінка закрита: додайте portfolio_page_password у secrets.yaml")
+        return
+    name = hashlib.sha256(password.encode("utf-8")).hexdigest() + ".json"
+    for existing in os.listdir(vault_dir):
+        if existing != name and existing.endswith(".json"):
+            os.remove(os.path.join(vault_dir, existing))
+    write_json(os.path.join(vault_dir, name), latest)
+
+
+def read_portfolio():
+    for path in (DATA_PATH, PUBLIC_JSON):
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(data, dict) and not data.get("locked") and data.get("latest"):
+            return data
+    return None
 
 
 def copy_dashboard():
@@ -742,19 +783,23 @@ def copy_dashboard():
 
 def write_report_status(ok, detail):
     status = {"ok": bool(ok), "detail": detail, "at": int(datetime.now().timestamp() * 1000)}
-    os.makedirs(WWW_DIR, exist_ok=True)
-    with open(os.path.join(WWW_DIR, "report-status.json"), "w", encoding="utf-8") as handle:
-        json.dump(status, handle)
-    if not os.path.isfile(JSON_PATH):
-        return
-    try:
-        with open(JSON_PATH, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        data["reportStatus"] = status
-        with open(JSON_PATH, "w", encoding="utf-8") as handle:
-            json.dump(data, handle, ensure_ascii=False)
-    except (OSError, json.JSONDecodeError) as error:
-        log(f"не вдалося записати статус звіту: {error}")
+    paths = [DATA_PATH]
+    password = page_password()
+    if password:
+        name = hashlib.sha256(password.encode("utf-8")).hexdigest() + ".json"
+        paths.append(os.path.join(WWW_DIR, "v", name))
+    for path in paths:
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if not isinstance(data, dict) or data.get("locked"):
+                continue
+            data["reportStatus"] = status
+            write_json(path, data)
+        except (OSError, json.JSONDecodeError) as error:
+            log(f"не вдалося записати статус звіту: {error}")
 
 
 def send_telegram(text):
@@ -949,20 +994,18 @@ def main():
     args = parser.parse_args()
     conn = connect()
     if args.print_total:
-        if os.path.isfile(JSON_PATH):
-            with open(JSON_PATH, "r", encoding="utf-8") as handle:
-                latest = json.load(handle)
-            print(latest.get("latest", {}).get("totalUsd") or 0)
-        else:
-            print("0")
+        latest = read_portfolio()
+        print(0 if latest is None else latest.get("latest", {}).get("totalUsd") or 0)
         return
     if args.sync_b64 == "report" or args.report:
         log("запит звіту в Telegram")
         try:
-            if not os.path.isfile(JSON_PATH):
+            latest = read_portfolio()
+            if latest is None:
                 publish(conn)
-            with open(JSON_PATH, "r", encoding="utf-8") as handle:
-                latest = json.load(handle)
+                latest = read_portfolio()
+            if latest is None:
+                raise RuntimeError("немає збереженого портфеля")
             sent = send_telegram(format_report(latest, "Аналітика за день"))
         except Exception as error:
             log(f"звіт не надіслано: {error}")

@@ -14,6 +14,7 @@ const state = {
   chart: { grain: "hour", range: "all", start: 0, end: 0 },
   returnSpan: "day",
   changeTicker: null,
+  showAmounts: localStorage.getItem("portfolio-show-amounts") !== "0",
 };
 
 const RETURN_SPANS = {
@@ -46,9 +47,16 @@ function inCurrency(usd) {
 }
 
 function money(usd) {
+  if (!state.showAmounts) return "****";
   const amount = inCurrency(usd);
   if (amount == null) return "—";
   return `${moneyFmt.format(amount)} ${state.currency}`;
+}
+
+function figure(value, currency = state.currency) {
+  if (!state.showAmounts) return "****";
+  if (value == null || !Number.isFinite(Number(value))) return "—";
+  return `${moneyFmt.format(Number(value))} ${currency}`.trim();
 }
 
 function countLabel(count, grain) {
@@ -187,7 +195,9 @@ function render() {
   const shown = analysis.companies.slice(0, 30);
   const tail = analysis.companies.slice(30);
   const tailValue = tail.reduce((sum, row) => sum + row.value, 0);
-  const cashNative = (report.cash || []).map((item) => `${moneyFmt.format(item.amount)} ${item.currency}`).join(" + ");
+  const cashNative = state.showAmounts
+    ? (report.cash || []).map((item) => `${moneyFmt.format(item.amount)} ${item.currency}`).join(" + ")
+    : "";
   const changes = report.changes || [];
   const changeTickers = [...new Set(changes.map((item) => item.ticker))];
   if (!changeTickers.includes(state.changeTicker)) state.changeTicker = changeTickers.find((ticker) => !ticker.startsWith("CASH.")) || changeTickers[0] || null;
@@ -303,7 +313,7 @@ function render() {
       </div>
       <p class="note" id="chart-note"></p>
     </section>
-    <section class="card">
+    <section class="card" style="margin-bottom: 16px;">
       <h2 class="section-title">Історія позицій <span class="note">після кожної синхронізації з плагіна</span></h2>
       ${changesHtml}
     </section>`;
@@ -532,7 +542,7 @@ function drawChart() {
     ctx.textAlign = "left";
     ctx.fillStyle = "#EAECEF";
     ctx.font = "14px sans-serif";
-    ctx.fillText(`${moneyFmt.format(value)} ${state.currency}`, left + 22, height / 2 - 2);
+    ctx.fillText(figure(value), left + 22, height / 2 - 2);
     ctx.fillStyle = "#848E9C";
     ctx.font = "12px sans-serif";
     ctx.fillText(pointLabel(point.t), left + 22, height / 2 + 16);
@@ -561,7 +571,7 @@ function drawChart() {
     ctx.moveTo(left, y);
     ctx.lineTo(width - right, y);
     ctx.stroke();
-    ctx.fillText(moneyFmt.format(value), left - 8, y + 4);
+    ctx.fillText(state.showAmounts ? moneyFmt.format(value) : "****", left - 8, y + 4);
   }
 
   const labelCount = Math.max(2, Math.min(5, visible.length));
@@ -635,7 +645,8 @@ function showTip(localX, localY) {
   const pct = delta != null && inCurrency(previous.usd) ? (delta / inCurrency(previous.usd)) * 100 : null;
   const moved = delta != null && Math.abs(delta) >= 0.5;
   tip.hidden = false;
-  tip.innerHTML = `<strong>${esc(money(point.usd))}</strong>${esc(pointLabel(point.t))}${moved ? `<div class="${delta >= 0 ? "up" : "down"}">${delta >= 0 ? "+" : ""}${moneyFmt.format(delta)} ${state.currency}${pct == null ? "" : ` · ${formatSignedPct(pct)}`}</div>` : ""}`;
+  const deltaText = !moved ? "" : `<div class="${delta >= 0 ? "up" : "down"}">${state.showAmounts ? `${delta >= 0 ? "+" : ""}${moneyFmt.format(delta)} ${state.currency}` : "****"}${pct == null ? "" : ` · ${formatSignedPct(pct)}`}</div>`;
+  tip.innerHTML = `<strong>${esc(money(point.usd))}</strong>${esc(pointLabel(point.t))}${deltaText}`;
   tip.style.left = `${Math.min(width - 176, Math.max(8, localX + 14))}px`;
   tip.style.top = `${Math.max(8, localY - 28)}px`;
   drawChart();
@@ -669,7 +680,8 @@ document.querySelector("#send-report").addEventListener("click", async () => {
     let status = null;
     for (let attempt = 0; attempt < 12; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 700));
-      const probe = await fetch(`portfolio.json?ts=${Date.now()}`, { cache: "no-store" });
+      const hash = localStorage.getItem(STORAGE_KEY);
+      const probe = await fetch(`v/${hash}.json?ts=${Date.now()}`, { cache: "no-store" });
       if (!probe.ok) continue;
       const body = await probe.json();
       const next = body.reportStatus;
@@ -693,6 +705,22 @@ window.matchMedia("(max-width: 720px)").addEventListener("change", () => {
   if (state.report) render();
 });
 
+const hideAmounts = document.querySelector("#hide-amounts");
+
+function paintAmounts() {
+  hideAmounts.classList.toggle("off", !state.showAmounts);
+  hideAmounts.setAttribute("aria-pressed", String(!state.showAmounts));
+  hideAmounts.setAttribute("aria-label", state.showAmounts ? "Сховати суми" : "Показати суми");
+}
+
+paintAmounts();
+hideAmounts.addEventListener("click", () => {
+  state.showAmounts = !state.showAmounts;
+  localStorage.setItem("portfolio-show-amounts", state.showAmounts ? "1" : "0");
+  paintAmounts();
+  if (state.report) render();
+});
+
 document.querySelector("#ccy-toggle").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-ccy]");
   if (!button) return;
@@ -701,16 +729,59 @@ document.querySelector("#ccy-toggle").addEventListener("click", (event) => {
   if (state.report) render();
 });
 
-async function main() {
-  const response = await fetch("portfolio.json", { cache: "no-store" });
-  state.report = await response.json();
+const STORAGE_KEY = "portfolio-gate";
+
+async function passwordHash(password) {
+  const bytes = new TextEncoder().encode(password);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((part) => part.toString(16).padStart(2, "0")).join("");
+}
+
+function showGate(message) {
+  document.querySelector(".controls").hidden = true;
+  document.querySelector("#updated").textContent = "Сторінка закрита";
+  document.querySelector("#app").innerHTML = `
+    <section class="card gate" style="margin: auto;">
+      <h2>Вхід</h2>
+      <form id="gate-form">
+        <input type="password" id="gate-password" autocomplete="current-password" placeholder="Пароль" required>
+        <button type="submit" class="primary">Відкрити</button>
+        ${message ? `<p class="warn">${esc(message)}</p>` : ""}
+      </form>
+    </section>`;
+  document.querySelector("#gate-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const password = document.querySelector("#gate-password").value;
+    const hash = await passwordHash(password);
+    const opened = await openVault(hash);
+    if (!opened) showGate("Невірний пароль");
+  });
+  document.querySelector("#gate-password").focus();
+}
+
+async function openVault(hash) {
+  const response = await fetch(`v/${hash}.json`, { cache: "no-store" });
+  if (!response.ok) return false;
+  const data = await response.json();
+  if (!data || data.locked || !Array.isArray(data.holdings)) return false;
+  localStorage.setItem(STORAGE_KEY, hash);
+  state.report = data;
+  document.querySelector(".controls").hidden = false;
   render();
   const tickers = tickersToResolve(holdingsPositions());
   const loaded = await loadResolutions(tickers);
   state.resolutions = loaded.resolutions;
   render();
+  return true;
 }
 
-main().catch((error) => {
+async function boot() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved && await openVault(saved)) return;
+  localStorage.removeItem(STORAGE_KEY);
+  showGate();
+}
+
+boot().catch((error) => {
   document.querySelector("#updated").textContent = error.message;
 });
