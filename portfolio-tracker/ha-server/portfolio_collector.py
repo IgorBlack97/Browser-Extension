@@ -809,7 +809,12 @@ def send_telegram(text):
     if not token or not chat:
         log("Telegram для портфеля не налаштований")
         return False
-    body = json.dumps({"chat_id": chat, "text": text, "disable_web_page_preview": True}).encode("utf-8")
+    body = json.dumps({
+        "chat_id": chat,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }).encode("utf-8")
     request = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/sendMessage",
         data=body,
@@ -854,13 +859,13 @@ FUNDS = {
 }
 
 BUCKET_LABELS = (
-    ("stocks", "Акції"),
-    ("bonds", "Облігації"),
-    ("gold", "Золото"),
-    ("commodity", "Сировина"),
-    ("crypto", "Крипто"),
-    ("cash", "Готівка"),
-    ("other", "Інше"),
+    ("stocks", "Акції", "📈"),
+    ("bonds", "Облігації", "🏛"),
+    ("gold", "Золото", "🥇"),
+    ("commodity", "Сировина", "🛢️"),
+    ("crypto", "Крипто", "🪙"),
+    ("cash", "Готівка", "💵"),
+    ("other", "Інше", "📦"),
 )
 
 
@@ -880,8 +885,12 @@ def holding_profile(item):
     return "stocks", None
 
 
+def html_escape(value):
+    return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def composition_lines(holdings, cash_usd, total_usd):
-    buckets = {key: 0.0 for key, _label in BUCKET_LABELS}
+    buckets = {key: 0.0 for key, _label, _emoji in BUCKET_LABELS}
     buckets["cash"] += cash_usd or 0
     for item in holdings:
         bucket, _blurb = holding_profile(item)
@@ -889,11 +898,11 @@ def composition_lines(holdings, cash_usd, total_usd):
     if not total_usd:
         return ["немає оцінки"]
     lines = []
-    for key, label in BUCKET_LABELS:
+    for key, label, emoji in BUCKET_LABELS:
         value = buckets.get(key) or 0
         if value <= 0:
             continue
-        lines.append(f"{label} {value / total_usd * 100:.0f}% · {value:.0f} USD")
+        lines.append(f"{emoji} {label} {value / total_usd * 100:.0f}% · <b>{value:.0f} USD</b>")
     return lines or ["немає оцінки"]
 
 
@@ -932,14 +941,24 @@ def native_quote(item, usd_per_eur):
 
 def position_line(item, usd_per_eur):
     _bucket, blurb = holding_profile(item)
-    ticker = item.get("ticker")
-    title = f"{ticker} ({blurb})" if blurb else str(ticker)
+    ticker = html_escape(item.get("ticker"))
+    title = f"{ticker} ({html_escape(blurb)})" if blurb else ticker
+    day = item.get("dayChangePct")
+    if day is None or day == 0:
+        mark = "⚪️"
+    elif day > 0:
+        mark = "🟢"
+    else:
+        mark = "🔴"
     total, unit, currency = native_quote(item, usd_per_eur)
     if total is None:
         deal = title
     else:
-        deal = f"{title} => {qty_text(item.get('quantity'))} x {compact_price(unit)} {currency} | {total:.0f} {currency}"
-    return f"{deal} ({signed_pct(item.get('dayChangePct'))} | {signed_pct(item.get('monthChangePct'))})"
+        deal = (
+            f"{title} => {qty_text(item.get('quantity'))} x {compact_price(unit)} {currency}"
+            f" | <b>{total:.0f} {currency}</b>"
+        )
+    return f"{mark} {deal} ({signed_pct(day)} | {signed_pct(item.get('monthChangePct'))})"
 
 
 def format_report(latest, title):
@@ -947,21 +966,24 @@ def format_report(latest, title):
     day = now.get("dayChangePct")
     day_usd = now.get("dayChangeUsd")
     if day is None:
+        day_emoji = "⚖️"
         day_text = "ще немає вчорашньої точки"
     else:
+        day_emoji = "📈" if day > 0 else "📉" if day < 0 else "⚖️"
         money = "" if day_usd is None else f" ({day_usd:+.0f} USD)"
-        day_text = f"{day:+.2f}%{money}"
+        day_text = f"<b>{day:+.2f}%</b>{money}"
     holdings = sorted(latest.get("holdings") or [], key=lambda item: item.get("valueUsd") or 0, reverse=True)
     usd_per_eur = latest.get("usdPerEur")
     lines = [
-        title,
-        f"Баланс {now['totalUsd']:.0f} USD, з них готівка {now['cashUsd']:.0f} USD",
-        f"За день: {day_text}",
+        f"📊 <b>{html_escape(title)}</b>",
         "",
-        "Склад",
+        f"💰 Баланс: <b>{now['totalUsd']:.0f} USD</b>, з них готівка <b>{now['cashUsd']:.0f} USD</b>",
+        f"{day_emoji} За день: {day_text}",
+        "",
+        "🧩 <b>Склад</b>",
         *composition_lines(holdings, now.get("cashUsd") or 0, now.get("totalUsd") or 0),
         "",
-        "Позиції:",
+        "📋 <b>Позиції:</b>",
     ]
     rendered = [position_line(item, usd_per_eur) for item in holdings]
     lines.append(("\n" + ("-" * 34) + "\n").join(rendered))
