@@ -5,13 +5,16 @@ export function dayPnlFromPct(value, pct) {
   return (value * rate) / (1 + rate);
 }
 
-export function dayReturn(positions) {
+export function dayReturn(positions, field = "dayChangePct") {
   const tiles = (positions || [])
     .filter((position) => position.assetClass !== "CASH" && position.value > 0)
     .map((position) => {
-      const pnl = position.dayPnl != null ? position.dayPnl : dayPnlFromPct(position.value, position.dayChangePct);
-      const pct = position.dayChangePct != null
-        ? position.dayChangePct
+      const given = position[field];
+      const pnl = field === "dayChangePct" && position.dayPnl != null
+        ? position.dayPnl
+        : dayPnlFromPct(position.value, given);
+      const pct = given != null
+        ? given
         : (pnl != null && position.value !== pnl ? (pnl / (position.value - pnl)) * 100 : null);
       return {
         ticker: position.ticker,

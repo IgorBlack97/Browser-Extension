@@ -183,26 +183,73 @@ def to_usd(amount, currency, rates):
     return float(amount) / per_usd
 
 
+def close_on_or_before(timestamps, closes, target):
+    price = None
+    for stamp, close in zip(timestamps or [], closes or []):
+        if stamp is None or close is None or stamp > target:
+            continue
+        price = float(close)
+    return price
+
+
+def previous_session_close(price, timestamps, closes):
+    series = [float(close) for close in (closes or []) if close is not None]
+    if not series or not price:
+        return None
+    if abs(series[-1] - float(price)) / float(price) < 0.0001:
+        return series[-2] if len(series) > 1 else None
+    return series[-1]
+
+
+def change_pct(price, base):
+    if not price or not base:
+        return None
+    return (float(price) - float(base)) / float(base) * 100
+
+
 def yahoo_quote(symbol):
     encoded = urllib.parse.quote(symbol)
-    data = fetch_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded}?interval=1d&range=5d")
-    result = (data.get("chart") or {}).get("result") or []
+    data = None
+    for query in ("interval=1d&range=5y", "interval=1d&range=5d"):
+        try:
+            data = fetch_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded}?{query}")
+        except Exception:
+            data = None
+        result = (data.get("chart") or {}).get("result") or [] if data else []
+        if result and (result[0].get("meta") or {}).get("regularMarketPrice") is not None:
+            break
+        data = None
+    result = (data.get("chart") or {}).get("result") or [] if data else []
     if not result:
         raise RuntimeError(f"Yahoo без даних для {symbol}")
     meta = result[0].get("meta") or {}
-    price = meta.get("regularMarketPrice")
-    if price is None:
-        raise RuntimeError(f"Yahoo без ціни для {symbol}")
+    price = float(meta["regularMarketPrice"])
     previous = meta.get("chartPreviousClose") or meta.get("previousClose")
-    change = None
-    if previous:
-        change = (float(price) - float(previous)) / float(previous) * 100
+    timestamps = result[0].get("timestamp") or []
+    closes = (((result[0].get("indicators") or {}).get("quote") or [{}])[0]).get("close") or []
+    latest = timestamps[-1] if timestamps else 0
     return {
         "symbol": meta.get("symbol") or symbol,
-        "price": float(price),
+        "price": price,
         "currency": (meta.get("currency") or "").upper(),
-        "dayChangePct": change,
+        "dayChangePct": change_pct(price, previous_session_close(price, timestamps, closes) or previous),
+        "monthChangePct": change_pct(price, close_on_or_before(timestamps, closes, latest - 30 * 86400)),
+        "yearChangePct": change_pct(price, close_on_or_before(timestamps, closes, latest - 365 * 86400)),
     }
+
+
+def since_purchase_pct(row, value_usd, rates):
+    quantity = row["quantity"]
+    average = row["avg_price"]
+    if not quantity or not average or not value_usd:
+        return None
+    try:
+        cost = to_usd(float(quantity) * float(average), row["currency"], rates)
+    except Exception:
+        return None
+    if not cost:
+        return None
+    return (float(value_usd) / cost - 1) * 100
 
 
 def resolve_yahoo(ticker, currency, known):
@@ -340,6 +387,9 @@ def mark_to_market(conn):
                 "priceCurrency": previous["price_currency"],
                 "valueUsd": previous["value_usd"],
                 "dayChangePct": None,
+                "monthChangePct": None,
+                "yearChangePct": None,
+                "allChangePct": None,
                 "stale": True,
             })
             continue
@@ -354,6 +404,7 @@ def mark_to_market(conn):
             continue
         usd = to_usd(native, quote["currency"], rates)
         invested += usd
+        all_pct = since_purchase_pct(row, usd, rates)
         conn.execute(
             """
             INSERT OR REPLACE INTO valuations (bucket, ticker, price, price_currency, value_usd, source)
@@ -372,6 +423,9 @@ def mark_to_market(conn):
             "priceCurrency": quote["currency"],
                 "valueUsd": round(usd, 2),
                 "dayChangePct": None if quote.get("dayChangePct") is None else round(quote["dayChangePct"], 2),
+                "monthChangePct": None if quote.get("monthChangePct") is None else round(quote["monthChangePct"], 2),
+                "yearChangePct": None if quote.get("yearChangePct") is None else round(quote["yearChangePct"], 2),
+                "allChangePct": None if all_pct is None else round(all_pct, 2),
                 "stale": False,
             })
     cash_rows = []
@@ -513,18 +567,109 @@ def send_telegram(text):
         return
 
 
+FUNDS = {
+    "VWCE": ("stocks", "акції всього світу"),
+    "VWRA": ("stocks", "акції всього світу"),
+    "VWRL": ("stocks", "акції всього світу"),
+    "VWRP": ("stocks", "акції всього світу"),
+    "VALU": ("stocks", "акції всього світу, з малою капіталізацією"),
+    "V3AA": ("stocks", "акції всього світу, з малою капіталізацією"),
+    "V3AB": ("stocks", "акції всього світу, з малою капіталізацією"),
+    "V3AL": ("stocks", "акції всього світу, з малою капіталізацією"),
+    "VUAA": ("stocks", "акції S&P 500"),
+    "CSPX": ("stocks", "акції S&P 500"),
+    "SXR8": ("stocks", "акції S&P 500"),
+    "VUSA": ("stocks", "акції S&P 500"),
+    "IWDA": ("stocks", "акції розвинених ринків"),
+    "SWDA": ("stocks", "акції розвинених ринків"),
+    "EUNL": ("stocks", "акції розвинених ринків"),
+    "EIMI": ("stocks", "акції ринків, що розвиваються"),
+    "EQQQ": ("stocks", "акції Nasdaq-100"),
+    "CNDX": ("stocks", "акції Nasdaq-100"),
+    "EGLN": ("gold", "фізичне золото"),
+    "SGLN": ("gold", "фізичне золото"),
+    "IGLN": ("gold", "фізичне золото"),
+    "SSLN": ("commodity", "фізичне срібло"),
+    "AGGU": ("bonds", "глобальні облігації, хедж у долар"),
+    "AGGG": ("bonds", "глобальні облігації"),
+    "EUNA": ("bonds", "глобальні облігації"),
+    "AGGH": ("bonds", "глобальні облігації, хедж у євро"),
+    "VAGF": ("bonds", "глобальні облігації"),
+}
+
+BUCKET_LABELS = (
+    ("stocks", "Акції"),
+    ("bonds", "Облігації"),
+    ("gold", "Золото"),
+    ("commodity", "Сировина"),
+    ("crypto", "Крипто"),
+    ("cash", "Готівка"),
+    ("other", "Інше"),
+)
+
+
+def signed_pct(value):
+    if value is None:
+        return "—"
+    return f"{value:+.1f}%"
+
+
+def holding_profile(item):
+    ticker = str(item.get("ticker") or "").upper()
+    if ticker in FUNDS:
+        return FUNDS[ticker]
+    name = str(item.get("name") or "")
+    if any(word in name.upper() for word in ("ETF", "UCITS", "FUND", "TRUST")):
+        return "other", None
+    return "stocks", None
+
+
+def composition_lines(holdings, cash_usd, total_usd):
+    buckets = {key: 0.0 for key, _label in BUCKET_LABELS}
+    buckets["cash"] += cash_usd or 0
+    for item in holdings:
+        bucket, _blurb = holding_profile(item)
+        buckets[bucket] = buckets.get(bucket, 0) + (item.get("valueUsd") or 0)
+    if not total_usd:
+        return ["немає оцінки"]
+    lines = []
+    for key, label in BUCKET_LABELS:
+        value = buckets.get(key) or 0
+        if value <= 0:
+            continue
+        lines.append(f"{label} {value / total_usd * 100:.0f}% · {value:.0f} USD")
+    return lines or ["немає оцінки"]
+
+
 def format_report(latest, title):
     now = latest["latest"]
     day = now.get("dayChangePct")
-    day_text = "ще немає вчорашньої точки" if day is None else f"{day:+.2f}% ({now['dayChangeUsd']:+.0f} USD)"
+    day_usd = now.get("dayChangeUsd")
+    if day is None:
+        day_text = "ще немає вчорашньої точки"
+    else:
+        money = "" if day_usd is None else f" ({day_usd:+.0f} USD)"
+        day_text = f"{day:+.2f}%{money}"
+    holdings = sorted(latest.get("holdings") or [], key=lambda item: item.get("valueUsd") or 0, reverse=True)
     lines = [
         title,
-        f"Разом {now['totalUsd']:.0f} USD, з них готівка {now['cashUsd']:.0f}",
+        f"Разом {now['totalUsd']:.0f} USD, з них готівка {now['cashUsd']:.0f} USD",
         f"За день: {day_text}",
+        "",
+        "Склад",
+        *composition_lines(holdings, now.get("cashUsd") or 0, now.get("totalUsd") or 0),
+        "",
+        "Позиції",
     ]
-    movers = sorted(latest["holdings"], key=lambda item: item.get("valueUsd") or 0, reverse=True)[:5]
-    for item in movers:
-        lines.append(f"{item['ticker']} {item.get('valueUsd') or 0:.0f} USD")
+    for item in holdings:
+        lines.append(
+            f"{item.get('ticker')} {item.get('valueUsd') or 0:.0f} USD"
+            f" · день {signed_pct(item.get('dayChangePct'))}"
+            f" · місяць {signed_pct(item.get('monthChangePct'))}"
+        )
+        _bucket, blurb = holding_profile(item)
+        if blurb:
+            lines.append(blurb)
     return "\n".join(lines)
 
 
