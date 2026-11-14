@@ -658,22 +658,24 @@ document.querySelector("#send-report").addEventListener("click", async () => {
   }
   button.disabled = true;
   button.textContent = "Надсилаю…";
-  let previousAt = 0;
+  let previousAt = Number(state.report?.reportStatus?.at) || 0;
   try {
-    const prior = await fetch(`report-status.json?ts=${Date.now()}`, { cache: "no-store" });
-    if (prior.ok) previousAt = Number((await prior.json()).at) || 0;
-  } catch { /* файлу ще немає */ }
-  try {
-    const response = await fetch(`/api/webhook/${encodeURIComponent(hook)}`, { method: "POST" });
+    const response = await fetch(`/api/webhook/${encodeURIComponent(hook)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "report", b64: "report" }),
+    });
     if (!response.ok) throw new Error(String(response.status));
     let status = null;
     for (let attempt = 0; attempt < 12; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 700));
-      const probe = await fetch(`report-status.json?ts=${Date.now()}`, { cache: "no-store" });
+      const probe = await fetch(`portfolio.json?ts=${Date.now()}`, { cache: "no-store" });
       if (!probe.ok) continue;
       const body = await probe.json();
-      if (Number(body.at) > previousAt) {
-        status = body;
+      const next = body.reportStatus;
+      if (next && Number(next.at) > previousAt) {
+        status = next;
+        state.report.reportStatus = next;
         break;
       }
     }

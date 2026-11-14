@@ -664,7 +664,7 @@ def build_latest(conn, holdings, cash_rows, invested, cash_usd, rates, fx_date):
         "history": history[-24 * 400:],
         "investedHistory": invested_history[-24 * 400:],
         "changes": change_rows(conn),
-        "reportHook": load_secrets().get("portfolio_report_webhook_id") or None,
+        "reportHook": load_secrets().get("portfolio_webhook_id") or load_secrets().get("portfolio_report_webhook_id") or None,
     }
 
 
@@ -741,9 +741,20 @@ def copy_dashboard():
 
 
 def write_report_status(ok, detail):
+    status = {"ok": bool(ok), "detail": detail, "at": int(datetime.now().timestamp() * 1000)}
     os.makedirs(WWW_DIR, exist_ok=True)
     with open(os.path.join(WWW_DIR, "report-status.json"), "w", encoding="utf-8") as handle:
-        json.dump({"ok": bool(ok), "detail": detail, "at": int(datetime.now().timestamp() * 1000)}, handle)
+        json.dump(status, handle)
+    if not os.path.isfile(JSON_PATH):
+        return
+    try:
+        with open(JSON_PATH, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        data["reportStatus"] = status
+        with open(JSON_PATH, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False)
+    except (OSError, json.JSONDecodeError) as error:
+        log(f"не вдалося записати статус звіту: {error}")
 
 
 def send_telegram(text):
@@ -945,18 +956,8 @@ def main():
         else:
             print("0")
         return
-    if args.sync_b64 or args.sync_file:
-        if args.sync_file:
-            with open(args.sync_file, "r", encoding="utf-8") as handle:
-                payload = json.load(handle)
-        else:
-            payload = json.loads(base64.b64decode(args.sync_b64).decode("utf-8"))
-        import_snapshot(conn, payload)
-        log(f"синхронізовано позицій: {len(payload.get('positions') or [])}")
-        total = mark_to_market(conn)
-        print(f"{total:.2f}")
-        return
-    if args.report:
+    if args.sync_b64 == "report" or args.report:
+        log("запит звіту в Telegram")
         try:
             if not os.path.isfile(JSON_PATH):
                 publish(conn)
@@ -968,8 +969,20 @@ def main():
             write_report_status(False, str(error))
             raise SystemExit(1)
         write_report_status(sent, "надіслано" if sent else "Telegram не налаштований")
+        log("звіт надіслано" if sent else "звіт не надіслано: Telegram не налаштований")
         if not sent:
             raise SystemExit(1)
+        return
+    if args.sync_b64 or args.sync_file:
+        if args.sync_file:
+            with open(args.sync_file, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        else:
+            payload = json.loads(base64.b64decode(args.sync_b64).decode("utf-8"))
+        import_snapshot(conn, payload)
+        log(f"синхронізовано позицій: {len(payload.get('positions') or [])}")
+        total = mark_to_market(conn)
+        print(f"{total:.2f}")
         return
     total = mark_to_market(conn)
     print(f"{total:.2f}")
