@@ -141,8 +141,13 @@ function render() {
   const cashNative = (report.cash || []).map((item) => `${moneyFmt.format(item.amount)} ${item.currency}`).join(" + ");
   const rects = layoutTreemap(day.tiles, 1000, 280);
   const tiles = rects.map((rect) => {
-    const compact = rect.w < 140 || rect.h < 78;
-    return `<div class="tile" style="left:${(rect.x / 1000) * 100}%;top:${(rect.y / 280) * 100}%;width:${(rect.w / 1000) * 100}%;height:${(rect.h / 280) * 100}%;background:${tileColor(rect.pct, span.scale)}"><strong>${esc(rect.ticker)}</strong>${compact ? "" : `<span>${formatSignedPct(rect.pct)}</span>`}</div>`;
+    const narrow = rect.w < 88;
+    const tight = !narrow && (rect.w < 140 || rect.h < 78);
+    const pct = formatSignedPct(rect.pct);
+    const body = narrow
+      ? `<span>${pct}</span>`
+      : `<strong>${esc(rect.ticker)}</strong><span>${pct}</span>`;
+    return `<div class="tile${narrow ? " narrow" : ""}${tight ? " tight" : ""}" title="${esc(rect.ticker)} ${pct}" style="left:${(rect.x / 1000) * 100}%;top:${(rect.y / 280) * 100}%;width:${(rect.w / 1000) * 100}%;height:${(rect.h / 280) * 100}%;background:${tileColor(rect.pct, span.scale)}">${body}</div>`;
   }).join("");
   const dayClass = day.dayPct > 0 ? "up" : day.dayPct < 0 ? "down" : "";
   const dayMoney = day.dayPnl == null ? "" : `${day.dayPnl > 0 ? "+" : ""}${money(day.dayPnl)}`;
@@ -185,7 +190,7 @@ function render() {
         </div>
         <div class="day-change ${dayClass}">${day.dayPct == null ? `немає ${span.missing}` : `${formatSignedPct(day.dayPct)}${dayMoney ? ` · ${esc(dayMoney)}` : ""}`}</div>
       </div>
-      ${tiles ? `<div class="treemap">${tiles}</div>` : `<p class="note">Карта з'явиться після першої оцінки цін.</p>`}
+      ${day.tiles.length ? (window.matchMedia("(max-width: 720px)").matches ? `<div class="return-list">${day.tiles.map((tile) => `<div class="return-row" style="background:${tileColor(tile.pct, span.scale)}"><strong>${esc(tile.ticker)}</strong><span>${formatSignedPct(tile.pct)}</span></div>`).join("")}</div>` : `<div class="treemap">${tiles}</div>`) : `<p class="note">Карта з'явиться після першої оцінки цін.</p>`}
       ${span.note ? `<p class="note">${span.note}</p>` : ""}
       ${day.missing.length ? `<p class="note">Без ${span.missing}: ${esc(day.missing.join(", "))}. Наступне годинне оновлення цін її додасть.</p>` : ""}
     </section>
@@ -202,13 +207,13 @@ function render() {
       </section>
       <section class="card">
         <h2 class="section-title">X-Ray <span class="note">компанії всередині фондів і окремі акції</span></h2>
-        <table>
+        <div class="table-scroll"><table>
           <thead><tr><th>Компанія</th><th class="num">Частка</th><th class="num">Сума</th><th>Звідки</th></tr></thead>
           <tbody>
             ${companyRows || `<tr><td colspan="4" class="empty">Рахую склади фондів…</td></tr>`}
             ${tail.length ? `<tr><td>Ще ${tail.length} компаній</td><td class="num">${formatPct(analysis.total ? (tailValue / analysis.total) * 100 : 0)}</td><td class="num">${esc(money(tailValue))}</td><td class="via">дрібні рядки нижче топ-30</td></tr>` : ""}
           </tbody>
-        </table>
+        </table></div>
       </section>
     </div>
     <section class="card">
@@ -407,7 +412,7 @@ function chartLayout() {
   const canvas = document.querySelector("#chart");
   const ratio = window.devicePixelRatio || 1;
   const width = canvas.clientWidth || 1000;
-  const height = 360;
+  const height = canvas.clientHeight || 360;
   canvas.width = Math.round(width * ratio);
   canvas.height = Math.round(height * ratio);
   const ctx = canvas.getContext("2d");
@@ -565,6 +570,33 @@ function paintCurrency() {
     button.classList.toggle("active", button.dataset.ccy === state.currency);
   }
 }
+
+document.querySelector("#send-report").addEventListener("click", async () => {
+  const button = document.querySelector("#send-report");
+  const hook = state.report?.reportHook;
+  const previous = "Звіт у Telegram";
+  if (!hook) {
+    button.textContent = "Ще не налаштовано";
+    setTimeout(() => { button.textContent = previous; }, 2500);
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "Надсилаю…";
+  try {
+    const response = await fetch(`/api/webhook/${encodeURIComponent(hook)}`, { method: "POST" });
+    button.textContent = response.ok ? "Надіслано" : "Не вдалося";
+  } catch {
+    button.textContent = "Не вдалося";
+  }
+  setTimeout(() => {
+    button.disabled = false;
+    button.textContent = previous;
+  }, 2500);
+});
+
+window.matchMedia("(max-width: 720px)").addEventListener("change", () => {
+  if (state.report) render();
+});
 
 document.querySelector("#ccy-toggle").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-ccy]");

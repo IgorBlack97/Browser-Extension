@@ -475,6 +475,7 @@ def build_latest(conn, holdings, cash_rows, invested, cash_usd, rates, fx_date):
         },
         "history": history[-24 * 400:],
         "investedHistory": invested_history[-24 * 400:],
+        "reportHook": load_secrets().get("portfolio_report_webhook_id") or None,
     }
 
 
@@ -718,10 +719,11 @@ def main():
         print(f"{total:.2f}")
         return
     if args.report:
-        publish(conn)
+        if not os.path.isfile(JSON_PATH):
+            publish(conn)
         with open(JSON_PATH, "r", encoding="utf-8") as handle:
             latest = json.load(handle)
-        send_telegram(format_report(latest, "Портфель"))
+        send_telegram(format_report(latest, "Портфель за день"))
         return
     total = mark_to_market(conn)
     print(f"{total:.2f}")
