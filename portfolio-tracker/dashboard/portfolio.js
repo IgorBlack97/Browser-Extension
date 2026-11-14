@@ -13,6 +13,7 @@ const state = {
   includeCash: false,
   chart: { grain: "hour", range: "all", start: 0, end: 0 },
   returnSpan: "day",
+  changeTicker: null,
 };
 
 const RETURN_SPANS = {
@@ -57,6 +58,54 @@ function countLabel(count, grain) {
   if (grain === "month") return form("місяць", "місяці", "місяців");
   if (grain === "day") return form("день", "дні", "днів");
   return form("година", "години", "годин");
+}
+
+const CHANGE_KIND = {
+  open: "Старт",
+  buy: "Купівля",
+  sell: "Продаж",
+  adjust: "Нова середня",
+  cash_in: "Надходження",
+  cash_out: "Зняття",
+};
+
+function qtyText(value) {
+  if (value == null || !Number.isFinite(Number(value))) return "—";
+  return new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 4 }).format(Number(value));
+}
+
+function whenText(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value || "";
+  return date.toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function holdingSteps(events) {
+  if (events.length < 2) return "";
+  const width = 640;
+  const height = 160;
+  const left = 44;
+  const right = 12;
+  const top = 12;
+  const bottom = 28;
+  const quantities = events.map((event) => Number(event.quantityAfter) || 0);
+  const min = Math.min(...quantities);
+  const max = Math.max(...quantities);
+  const span = max - min || 1;
+  const x = (index) => left + (index / (events.length - 1)) * (width - left - right);
+  const y = (quantity) => top + (1 - (quantity - min) / span) * (height - top - bottom);
+  let path = `M${x(0)},${y(quantities[0])}`;
+  for (let index = 1; index < events.length; index += 1) {
+    path += ` H${x(index)} V${y(quantities[index])}`;
+  }
+  const last = events[events.length - 1];
+  return `<svg class="holding-chart" viewBox="0 0 ${width} ${height}" role="img">
+    <text x="${left - 6}" y="${y(max) + 4}" text-anchor="end">${qtyText(max)}</text>
+    <text x="${left - 6}" y="${y(min) + 4}" text-anchor="end">${qtyText(min)}</text>
+    <text x="${x(0)}" y="${height - 8}">${esc(whenText(events[0].t))}</text>
+    <text x="${x(events.length - 1)}" y="${height - 8}" text-anchor="end">${esc(whenText(last.t))}</text>
+    <path d="${path}"></path>
+  </svg>`;
 }
 
 function pointLabel(bucket, grain = state.chart.grain) {
@@ -139,6 +188,23 @@ function render() {
   const tail = analysis.companies.slice(30);
   const tailValue = tail.reduce((sum, row) => sum + row.value, 0);
   const cashNative = (report.cash || []).map((item) => `${moneyFmt.format(item.amount)} ${item.currency}`).join(" + ");
+  const changes = report.changes || [];
+  const changeTickers = [...new Set(changes.map((item) => item.ticker))];
+  if (!changeTickers.includes(state.changeTicker)) state.changeTicker = changeTickers.find((ticker) => !ticker.startsWith("CASH.")) || changeTickers[0] || null;
+  const selectedChanges = changes.filter((item) => item.ticker === state.changeTicker);
+  const changeRows = selectedChanges.map((item) => {
+    const price = item.kind === "buy" || item.kind === "open" ? item.tradePrice : item.kind === "adjust" ? item.avgAfter : null;
+    const priceText = price == null ? "—" : `${qtyText(price)} ${item.currency || ""}`.trim();
+    return `<tr><td>${esc(whenText(item.t))}</td><td>${esc(CHANGE_KIND[item.kind] || item.kind)}</td><td class="num">${qtyText(item.tradeQty)}</td><td class="num">${esc(priceText)}</td><td class="num">${qtyText(item.quantityAfter)}</td></tr>`;
+  }).join("");
+  const changesHtml = changes.length
+    ? `<div class="chip-row" id="change-ticker">${changeTickers.map((ticker) => `<button type="button" data-ticker="${esc(ticker)}" class="${ticker === state.changeTicker ? "active" : ""}">${esc(ticker.startsWith("CASH.") ? ticker.slice(5) : ticker)}</button>`).join("")}</div>
+      ${holdingSteps(selectedChanges)}
+      <div class="table-scroll"><table>
+        <thead><tr><th>Коли</th><th>Подія</th><th class="num">Кількість</th><th class="num">Ціна</th><th class="num">Стало</th></tr></thead>
+        <tbody>${changeRows}</tbody>
+      </table></div>`
+    : `<p class="note">Поки що тут порожньо. Перша синхронізація запише стартові кількість і середню ціну. Наступна, після купівлі або продажу, додасть саму зміну.</p>`;
   const rects = layoutTreemap(day.tiles, 1000, 280);
   const tiles = rects.map((rect) => {
     const narrow = rect.w < 88;
@@ -236,9 +302,19 @@ function render() {
         <div id="chart-tip" class="chart-tip" hidden></div>
       </div>
       <p class="note" id="chart-note"></p>
+    </section>
+    <section class="card">
+      <h2 class="section-title">Історія позицій <span class="note">після кожної синхронізації з плагіна</span></h2>
+      ${changesHtml}
     </section>`;
   document.querySelector("#include-cash").addEventListener("click", () => {
     state.includeCash = !state.includeCash;
+    render();
+  });
+  document.querySelector("#change-ticker")?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-ticker]");
+    if (!button || button.dataset.ticker === state.changeTicker) return;
+    state.changeTicker = button.dataset.ticker;
     render();
   });
   document.querySelector("#return-span").addEventListener("click", (event) => {
@@ -582,9 +658,26 @@ document.querySelector("#send-report").addEventListener("click", async () => {
   }
   button.disabled = true;
   button.textContent = "Надсилаю…";
+  let previousAt = 0;
+  try {
+    const prior = await fetch(`report-status.json?ts=${Date.now()}`, { cache: "no-store" });
+    if (prior.ok) previousAt = Number((await prior.json()).at) || 0;
+  } catch { /* файлу ще немає */ }
   try {
     const response = await fetch(`/api/webhook/${encodeURIComponent(hook)}`, { method: "POST" });
-    button.textContent = response.ok ? "Надіслано" : "Не вдалося";
+    if (!response.ok) throw new Error(String(response.status));
+    let status = null;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      const probe = await fetch(`report-status.json?ts=${Date.now()}`, { cache: "no-store" });
+      if (!probe.ok) continue;
+      const body = await probe.json();
+      if (Number(body.at) > previousAt) {
+        status = body;
+        break;
+      }
+    }
+    button.textContent = status?.ok ? "Надіслано" : "Не вдалося";
   } catch {
     button.textContent = "Не вдалося";
   }

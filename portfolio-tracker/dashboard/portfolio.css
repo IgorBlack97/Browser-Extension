@@ -113,6 +113,9 @@ button.check.on {
   gap: 16px;
   margin-bottom: 16px;
 }
+.layout > .card,
+.kpis > .card,
+.card { min-width: 0; max-width: 100%; }
 .section-title {
   display: flex;
   justify-content: space-between;
@@ -216,8 +219,14 @@ textarea { width: 100%; min-height: 110px; resize: vertical; }
 .tile.tight span { font-size: 11px; margin-top: 1px; }
 .tile.narrow { padding: 1px; border-width: 1px; }
 .tile.narrow span { font-size: 10px; line-height: 1.1; margin: 0; }
-.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-scroll { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 #send-report { font-weight: 700; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.chip-row button { background: var(--card-2); color: var(--muted); font-weight: 700; }
+.chip-row button.active { background: var(--yellow); color: #181A20; border-color: var(--yellow); }
+.holding-chart { width: 100%; height: 180px; display: block; background: #12151a; border-radius: 8px; margin-bottom: 12px; }
+.holding-chart text { fill: #848E9C; font-size: 12px; font-family: inherit; }
+.holding-chart path { fill: none; stroke: #FCD535; stroke-width: 2; }
 .chart-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .chart-toolbar h2 { margin: 0; margin-right: auto; }
 .chart-wrap { position: relative; }
@@ -261,9 +270,13 @@ footer a { color: var(--yellow); }
   .chart-toolbar .ccy-toggle button { padding: 8px 8px; }
   .chart-wrap canvas { height: 280px; }
   .treemap { height: 360px; }
-  .legend-row { grid-template-columns: 14px 1fr auto; }
-  .legend-row .money { grid-column: 2 / -1; }
-  table { min-width: 520px; }
+  .legend-row { grid-template-columns: 14px minmax(0, 1fr); }
+  .legend-row .pct,
+  .legend-row .money { grid-column: 2; min-width: 0; text-align: left; }
+  .subrows { margin-left: 22px; overflow-wrap: anywhere; }
+  .via { overflow-wrap: anywhere; }
+  table { min-width: 0; }
+  th, td { padding: 6px 4px; }
   .section-title { flex-wrap: wrap; }
-  button.check { width: 100%; white-space: normal; text-align: left; }
+  button.check { width: 100%; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 }

@@ -130,6 +130,20 @@ def connect():
             key TEXT PRIMARY KEY,
             value TEXT
         );
+        CREATE TABLE IF NOT EXISTS holding_changes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            synced_at TEXT NOT NULL,
+            ticker TEXT NOT NULL,
+            name TEXT,
+            kind TEXT NOT NULL,
+            currency TEXT,
+            quantity_before REAL,
+            quantity_after REAL,
+            avg_before REAL,
+            avg_after REAL,
+            trade_qty REAL,
+            trade_price REAL
+        );
         """
     )
     return conn
@@ -267,8 +281,182 @@ def resolve_yahoo(ticker, currency, known):
     return YAHOO.get(ticker) or ticker
 
 
+def as_float(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    return number
+
+
+def books_from_payload(payload):
+    positions = {}
+    for item in payload.get("positions") or []:
+        ticker = str(item.get("ticker") or "").upper()
+        if not ticker:
+            continue
+        positions[ticker] = {
+            "name": item.get("name") or ticker,
+            "quantity": as_float(item.get("quantity")),
+            "avg": as_float(item.get("avgPrice")),
+            "currency": str(item.get("currency") or item.get("marketCurrency") or "").upper(),
+        }
+    cash = {}
+    for item in payload.get("cash") or []:
+        currency = str(item.get("currency") or "").upper()
+        amount = as_float(item.get("amount"))
+        if not currency or amount in (None, 0):
+            continue
+        cash[f"CASH.{currency}"] = {
+            "name": f"Готівка {currency}",
+            "quantity": amount,
+            "avg": 1.0,
+            "currency": currency,
+        }
+    return positions, cash
+
+
+def books_from_db(conn):
+    positions = {}
+    for row in conn.execute("SELECT * FROM positions"):
+        positions[row["ticker"]] = {
+            "name": row["name"],
+            "quantity": as_float(row["quantity"]),
+            "avg": as_float(row["avg_price"]),
+            "currency": row["currency"],
+        }
+    cash = {}
+    for row in conn.execute("SELECT * FROM cash"):
+        currency = row["currency"]
+        cash[f"CASH.{currency}"] = {
+            "name": f"Готівка {currency}",
+            "quantity": as_float(row["amount"]),
+            "avg": 1.0,
+            "currency": currency,
+        }
+    return positions, cash
+
+
+def added_lot_price(old_qty, old_avg, new_qty, new_avg):
+    if None in (old_qty, old_avg, new_qty, new_avg):
+        return None
+    delta = new_qty - old_qty
+    if abs(delta) < 1e-6:
+        return None
+    price = (new_qty * new_avg - old_qty * old_avg) / delta
+    if price <= 0:
+        return None
+    return round(price, 6)
+
+
+def describe_change(old, new, opening):
+    old_qty = None if old is None else old.get("quantity")
+    new_qty = None if new is None else new.get("quantity")
+    old_avg = None if old is None else old.get("avg")
+    new_avg = None if new is None else new.get("avg")
+    if old is None and (new_qty is None or abs(new_qty) < 1e-6):
+        return None
+    if opening or old is None:
+        return "open", new_qty, new_avg
+    if new is None or new_qty is None or abs(new_qty) < 1e-6:
+        return "sell", old_qty, None
+    if new_qty > old_qty + 1e-6:
+        return "buy", new_qty - old_qty, added_lot_price(old_qty, old_avg, new_qty, new_avg)
+    if old_qty is not None and new_qty < old_qty - 1e-6:
+        return "sell", old_qty - new_qty, None
+    if old_avg is not None and new_avg is not None and abs(new_avg - old_avg) > max(1e-6, abs(old_avg) * 1e-4):
+        return "adjust", 0, new_avg
+    return None
+
+
+def write_book_changes(conn, before, after, synced_at, opening):
+    for ticker in sorted(set(before) | set(after)):
+        old = before.get(ticker)
+        new = after.get(ticker)
+        described = describe_change(old, new, opening)
+        if described is None:
+            continue
+        kind, trade_qty, trade_price = described
+        if ticker.startswith("CASH."):
+            trade_price = None
+            if kind == "buy":
+                kind = "cash_in"
+            elif kind == "sell":
+                kind = "cash_out"
+        current = new or old
+        conn.execute(
+            """
+            INSERT INTO holding_changes
+            (synced_at, ticker, name, kind, currency, quantity_before, quantity_after, avg_before, avg_after, trade_qty, trade_price)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                synced_at,
+                ticker,
+                current.get("name"),
+                kind,
+                current.get("currency"),
+                None if old is None else old.get("quantity"),
+                None if new is None else new.get("quantity"),
+                None if old is None else old.get("avg"),
+                None if new is None else new.get("avg"),
+                trade_qty,
+                trade_price,
+            ),
+        )
+
+
+def ensure_changes(conn):
+    if conn.execute("SELECT COUNT(*) AS n FROM holding_changes").fetchone()["n"]:
+        return
+    positions, cash = {}, {}
+    opening = True
+    for row in conn.execute("SELECT synced_at, payload FROM syncs ORDER BY id"):
+        try:
+            payload = json.loads(row["payload"])
+        except (TypeError, json.JSONDecodeError):
+            continue
+        next_positions, next_cash = books_from_payload(payload)
+        when = payload.get("syncedAt") or row["synced_at"]
+        write_book_changes(conn, positions, next_positions, when, opening)
+        write_book_changes(conn, cash, next_cash, when, opening)
+        positions, cash = next_positions, next_cash
+        opening = False
+    conn.commit()
+
+
+def change_rows(conn):
+    ensure_changes(conn)
+    rows = conn.execute("SELECT * FROM holding_changes ORDER BY synced_at, id").fetchall()
+    return [
+        {
+            "t": row["synced_at"],
+            "ticker": row["ticker"],
+            "name": row["name"],
+            "kind": row["kind"],
+            "currency": row["currency"],
+            "quantityBefore": row["quantity_before"],
+            "quantityAfter": row["quantity_after"],
+            "avgBefore": row["avg_before"],
+            "avgAfter": row["avg_after"],
+            "tradeQty": row["trade_qty"],
+            "tradePrice": row["trade_price"],
+        }
+        for row in rows
+    ]
+
+
 def import_snapshot(conn, payload):
     now = datetime.now().astimezone().isoformat(timespec="seconds")
+    ensure_changes(conn)
+    before_positions, before_cash = books_from_db(conn)
+    after_positions, after_cash = books_from_payload(payload)
+    opening = conn.execute("SELECT COUNT(*) AS n FROM holding_changes").fetchone()["n"] == 0
+    when = payload.get("syncedAt") or now
+    write_book_changes(conn, before_positions, after_positions, when, opening)
+    write_book_changes(conn, before_cash, after_cash, when, opening)
     previous = {row["ticker"]: row["yahoo"] for row in conn.execute("SELECT ticker, yahoo FROM positions")}
     conn.execute("DELETE FROM positions")
     conn.execute("DELETE FROM cash")
@@ -475,6 +663,7 @@ def build_latest(conn, holdings, cash_rows, invested, cash_usd, rates, fx_date):
         },
         "history": history[-24 * 400:],
         "investedHistory": invested_history[-24 * 400:],
+        "changes": change_rows(conn),
         "reportHook": load_secrets().get("portfolio_report_webhook_id") or None,
     }
 
@@ -551,21 +740,31 @@ def copy_dashboard():
                 outgoing.write(incoming.read())
 
 
+def write_report_status(ok, detail):
+    os.makedirs(WWW_DIR, exist_ok=True)
+    with open(os.path.join(WWW_DIR, "report-status.json"), "w", encoding="utf-8") as handle:
+        json.dump({"ok": bool(ok), "detail": detail, "at": int(datetime.now().timestamp() * 1000)}, handle)
+
+
 def send_telegram(text):
     secrets = load_secrets()
     token = os.environ.get("PORTFOLIO_TG_BOT_TOKEN") or secrets.get("portfolio_tg_bot_token")
     chat = os.environ.get("PORTFOLIO_TG_CHAT_ID") or secrets.get("portfolio_tg_chat_id")
     if not token or not chat:
         log("Telegram для портфеля не налаштований")
-        return
-    body = json.dumps({"chat_id": chat, "text": text}).encode("utf-8")
+        return False
+    body = json.dumps({"chat_id": chat, "text": text, "disable_web_page_preview": True}).encode("utf-8")
     request = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/sendMessage",
         data=body,
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=20):
-        return
+    with urllib.request.urlopen(request, timeout=20) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not payload.get("ok"):
+        log(f"Telegram відхилив звіт: {payload}")
+        return False
+    return True
 
 
 FUNDS = {
@@ -642,6 +841,51 @@ def composition_lines(holdings, cash_usd, total_usd):
     return lines or ["немає оцінки"]
 
 
+def qty_text(value):
+    if value is None:
+        return "?"
+    if abs(value - round(value)) < 1e-6:
+        return str(int(round(value)))
+    return f"{value:.4f}".rstrip("0").rstrip(".")
+
+
+def compact_price(value):
+    if abs(value) >= 100:
+        return f"{value:.0f}"
+    return f"{value:.2f}"
+
+
+def native_quote(item, usd_per_eur):
+    quantity = item.get("quantity")
+    price = item.get("price")
+    value_usd = item.get("valueUsd")
+    currency = str(item.get("currency") or "").upper()
+    quote = str(item.get("priceCurrency") or currency).upper()
+    if quantity and price is not None and quote == currency:
+        return quantity * float(price), float(price), currency or quote
+    if value_usd is not None and quantity and currency == "USD":
+        total = float(value_usd)
+        return total, total / quantity, "USD"
+    if value_usd is not None and quantity and currency == "EUR" and usd_per_eur:
+        total = float(value_usd) / usd_per_eur
+        return total, total / quantity, "EUR"
+    if quantity and price is not None:
+        return quantity * float(price), float(price), quote or currency or "USD"
+    return None, None, currency or "USD"
+
+
+def position_line(item, usd_per_eur):
+    _bucket, blurb = holding_profile(item)
+    ticker = item.get("ticker")
+    title = f"{ticker} ({blurb})" if blurb else str(ticker)
+    total, unit, currency = native_quote(item, usd_per_eur)
+    if total is None:
+        deal = title
+    else:
+        deal = f"{title} => {qty_text(item.get('quantity'))} x {compact_price(unit)} {currency} | {total:.0f} {currency}"
+    return f"{deal} ({signed_pct(item.get('dayChangePct'))} | {signed_pct(item.get('monthChangePct'))})"
+
+
 def format_report(latest, title):
     now = latest["latest"]
     day = now.get("dayChangePct")
@@ -652,25 +896,19 @@ def format_report(latest, title):
         money = "" if day_usd is None else f" ({day_usd:+.0f} USD)"
         day_text = f"{day:+.2f}%{money}"
     holdings = sorted(latest.get("holdings") or [], key=lambda item: item.get("valueUsd") or 0, reverse=True)
+    usd_per_eur = latest.get("usdPerEur")
     lines = [
         title,
-        f"Разом {now['totalUsd']:.0f} USD, з них готівка {now['cashUsd']:.0f} USD",
+        f"Баланс {now['totalUsd']:.0f} USD, з них готівка {now['cashUsd']:.0f} USD",
         f"За день: {day_text}",
         "",
         "Склад",
         *composition_lines(holdings, now.get("cashUsd") or 0, now.get("totalUsd") or 0),
         "",
-        "Позиції",
+        "Позиції:",
     ]
-    for item in holdings:
-        lines.append(
-            f"{item.get('ticker')} {item.get('valueUsd') or 0:.0f} USD"
-            f" · день {signed_pct(item.get('dayChangePct'))}"
-            f" · місяць {signed_pct(item.get('monthChangePct'))}"
-        )
-        _bucket, blurb = holding_profile(item)
-        if blurb:
-            lines.append(blurb)
+    rendered = [position_line(item, usd_per_eur) for item in holdings]
+    lines.append(("\n" + ("-" * 34) + "\n").join(rendered))
     return "\n".join(lines)
 
 
@@ -679,7 +917,7 @@ def maybe_notify(conn, latest):
     hour = datetime.now().astimezone().hour
     report_hour = int(load_secrets().get("portfolio_report_hour") or REPORT_HOUR)
     if hour == report_hour and meta_get(conn, "last_report_date") != today:
-        send_telegram(format_report(latest, "Портфель за день"))
+        send_telegram(format_report(latest, "Аналітика за день"))
         meta_set(conn, "last_report_date", today)
         conn.commit()
     change = latest["latest"].get("dayChangePct")
@@ -719,11 +957,19 @@ def main():
         print(f"{total:.2f}")
         return
     if args.report:
-        if not os.path.isfile(JSON_PATH):
-            publish(conn)
-        with open(JSON_PATH, "r", encoding="utf-8") as handle:
-            latest = json.load(handle)
-        send_telegram(format_report(latest, "Портфель за день"))
+        try:
+            if not os.path.isfile(JSON_PATH):
+                publish(conn)
+            with open(JSON_PATH, "r", encoding="utf-8") as handle:
+                latest = json.load(handle)
+            sent = send_telegram(format_report(latest, "Аналітика за день"))
+        except Exception as error:
+            log(f"звіт не надіслано: {error}")
+            write_report_status(False, str(error))
+            raise SystemExit(1)
+        write_report_status(sent, "надіслано" if sent else "Telegram не налаштований")
+        if not sent:
+            raise SystemExit(1)
         return
     total = mark_to_market(conn)
     print(f"{total:.2f}")

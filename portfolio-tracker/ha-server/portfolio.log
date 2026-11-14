@@ -1,0 +1,14 @@
+2026-11-14T17:35:24+02:00 курс https://api.frankfurter.dev/v1/latest?base=USD: <urlopen error Tunnel connection failed: 403 Forbidden>
+2026-11-14T17:35:24+02:00 курс https://api.frankfurter.app/latest?from=USD: <urlopen error Tunnel connection failed: 403 Forbidden>
+2026-11-14T17:35:24+02:00 перша точка без курсу: Курс ЄЦБ недоступний
+2026-11-14T17:35:24+02:00 курс https://api.frankfurter.dev/v1/latest?base=USD: <urlopen error Tunnel connection failed: 403 Forbidden>
+2026-11-14T17:35:24+02:00 курс https://api.frankfurter.app/latest?from=USD: <urlopen error Tunnel connection failed: 403 Forbidden>
+2026-11-14T17:35:24+02:00 Курс ЄЦБ недоступний
+2026-11-14T17:35:24+02:00 записано /Users/igor/Desktop/Homeworks/browser-extensions/portfolio-tracker/ha-server/www/portfolio.json
+2026-11-14T17:35:24+02:00 курс https://api.frankfurter.dev/v1/latest?base=USD: <urlopen error Tunnel connection failed: 403 Forbidden>
+2026-11-14T17:35:24+02:00 курс https://api.frankfurter.app/latest?from=USD: <urlopen error Tunnel connection failed: 403 Forbidden>
+2026-11-14T17:35:24+02:00 перша точка без курсу: Курс ЄЦБ недоступний
+2026-11-14T17:35:25+02:00 курс https://api.frankfurter.dev/v1/latest?base=USD: <urlopen error Tunnel connection failed: 403 Forbidden>
+2026-11-14T17:35:25+02:00 курс https://api.frankfurter.app/latest?from=USD: <urlopen error Tunnel connection failed: 403 Forbidden>
+2026-11-14T17:35:25+02:00 Курс ЄЦБ недоступний
+2026-11-14T17:35:25+02:00 записано /Users/igor/Desktop/Homeworks/browser-extensions/portfolio-tracker/ha-server/www/portfolio.json
